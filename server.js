@@ -4,14 +4,17 @@ const cors = require("cors");
 require("dotenv").config();
 
 const authRoutes = require("./routes/authRoutes");
+const jobRoutes = require("./routes/jobRoutes");
 
 const app = express();
 
-// Middleware
+//middleware
 app.use(cors());
 app.use(express.json());
 
+// routes
 app.use("/api/auth", authRoutes);
+app.use("/api/jobs", jobRoutes);
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGO_URI)
