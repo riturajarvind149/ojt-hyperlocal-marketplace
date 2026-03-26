@@ -138,3 +138,61 @@ exports.getApplications = async (req, res) => {
     });
   }
 };
+
+// =======================
+// 📌 TOPIC: Update Application Status
+// 📌 PURPOSE: Business application ko accept ya reject kar sakta hai
+// =======================
+
+exports.updateApplicationStatus = async (req, res) => {
+  try {
+
+    // 🔒 Sirf business access kare
+    if (req.user.role !== "business") {
+      return res.status(403).json({
+        message: "Only businesses can update application status"
+      });
+    }
+
+    const { applicationId, status } = req.body;
+
+    // ❗ VALIDATION (VERY IMPORTANT)
+    if (!applicationId || !status) {
+      return res.status(400).json({
+        message: "applicationId and status are required"
+      });
+    }
+
+    // ❗ Status check
+    if (!["accepted", "rejected"].includes(status)) {
+      return res.status(400).json({
+        message: "Status must be 'accepted' or 'rejected'"
+      });
+    }
+
+    // 🔍 Find application
+    const application = await Application.findById(applicationId);
+
+    if (!application) {
+      return res.status(404).json({
+        message: "Application not found"
+      });
+    }
+
+    // ✅ Status update
+    application.status = status;
+
+    await application.save();
+
+    res.status(200).json({
+      message: "Application status updated",
+      application
+    });
+
+  } catch (error) {
+    console.log(error); // 🔥 terminal me exact error dikhega
+    res.status(500).json({
+      message: "Server error"
+    });
+  }
+};
