@@ -32,25 +32,85 @@ async function loadJobs() {
     const res = await fetch("http://localhost:5000/api/jobs");
     const jobs = await res.json();
 
+    // 🔥 Fetch applications of logged-in student
+    const appRes = await fetch("http://localhost:5000/api/jobs/my-applications",{
+      headers: {
+        "Authorization": "Bearer " + token
+      }
+    });
+
+    const applications = await appRes.json();
+
+    //Get jobIds where already applied
+    const appliedJobIds = Array.isArray(applications)
+      ? applications.map(app => app.jobId._id)
+      : [];
+
     const jobsDiv = document.getElementById("jobs");
     jobsDiv.innerHTML = "";
 
     jobs.forEach(job => {
-      const div = document.createElement("div");
-      div.className = "job-card";
+  const div = document.createElement("div");
+  div.className = "card";
 
-      div.innerHTML = `
-        <h3>${job.title}</h3>
-        <p>${job.description}</p>
-        <p><b>Budget:</b> ₹${job.budget}</p>
-        <button onclick="applyJob('${job._id}', this)">Apply</button>
-      `;
+  div.innerHTML = `
+    <h3>${job.title}</h3>
+    <p>${job.description}</p>
+    <p><b>Budget:</b> ₹${job.budget}</p>
+    ${
+      appliedJobIds.includes(job._id)
+        ? `<button class="applied-btn" disabled>✔ Applied</button>`
+        : `<button onclick="applyJob('${job._id}', this)">Apply</button>`
+    }
+  `;
 
-      jobsDiv.appendChild(div);
-    });
+  jobsDiv.appendChild(div);
+});
 
   } catch (error) {
     console.log(error);
+  }
+}
+
+async function loadMyApplications() {
+  try {
+    const res = await fetch("http://localhost:5000/api/jobs/my-applications", {
+      headers: {
+        "Authorization": "Bearer " + token
+      }
+    });
+
+    const data = await res.json();
+
+    const appDiv = document.getElementById("myApplications");
+    appDiv.innerHTML = "";
+
+    if (!Array.isArray(data)) return;
+
+    data.forEach(app => {
+      const div = document.createElement("div");
+      div.className = "card";
+
+      div.innerHTML = `
+        <h3>${app.jobId.title}</h3>
+
+        <p>
+          <b>Status:</b> 
+          <span class="badge-${app.status}">
+            ${
+              app.status === "accepted" ? "✔ ACCEPTED" :
+              app.status === "rejected" ? "❌ REJECTED" :
+              "⏳ PENDING"
+            }
+          </span>
+        </p>
+      `;
+
+      appDiv.appendChild(div);
+    });
+
+  } catch (err) {
+    console.log(err);
   }
 }
 
@@ -68,7 +128,7 @@ async function applyJob(jobId, btn) {
 
     const data = await res.json();
 
-    if (res.status === 200) {
+    if (res.status === 200 || res.status === 400) {
       btn.innerText = "Applied";
       btn.disabled = true;
     }
@@ -82,3 +142,4 @@ async function applyJob(jobId, btn) {
 
 //INIT
 loadJobs();
+loadMyApplications();

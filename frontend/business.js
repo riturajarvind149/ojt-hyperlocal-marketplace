@@ -39,14 +39,36 @@ async function loadApplications() {
 
     data.forEach(app => {
       const div = document.createElement("div");
+      div.className = "card";
 
       div.innerHTML = `
         <p><b>Job:</b> ${app.jobId.title}</p>
         <p><b>Student:</b> ${app.studentId.email}</p>
-        <p><b>Status:</b> ${app.status}</p>
 
-        <button onclick="updateStatus('${app._id}', 'accepted')">Accept</button>
-        <button onclick="updateStatus('${app._id}', 'rejected')">Reject</button>
+        <p>
+          <b>Status:</b> 
+          <span class="badge-${app.status}">
+            ${
+              app.status === "accepted" ? "✔ ACCEPTED" :
+              app.status === "rejected" ? "❌ REJECTED" :
+              "⏳ PENDING"
+            }
+          </span>
+        </p>
+
+        ${
+          app.status === "pending"
+            ? `
+              <button onclick="updateStatus('${app._id}', 'accepted')">
+                Accept
+              </button>
+
+              <button onclick="updateStatus('${app._id}', 'rejected')">
+                Reject
+              </button>
+            `
+            : ``
+        }
 
         <hr/>
       `;
@@ -66,6 +88,8 @@ async function loadApplications() {
 async function updateStatus(appId, status) {
   try {
 
+    console.log("Clicked:", appId, status); //
+
     const res = await fetch("http://localhost:5000/api/jobs/application-status", {
       method: "PUT",
       headers: {
@@ -77,10 +101,11 @@ async function updateStatus(appId, status) {
 
     const data = await res.json();
 
+    console.log("Server Response:", data);
+
     alert(data.message);
 
-    loadApplications(); // refresh
-
+    await loadApplications();
   } catch (error) {
     console.log(error);
   }

@@ -196,3 +196,31 @@ exports.updateApplicationStatus = async (req, res) => {
     });
   }
 };
+
+
+
+
+exports.getStudentApplications = async (req, res) => {
+  try {
+
+    // 🔒 Only student
+    if (req.user.role !== "student") {
+      return res.status(403).json({
+        message: "Only students can view their applications"
+      });
+    }
+
+    // 🔍 Find only this student's applications
+    const applications = await Application.find({
+      studentId: req.user.id
+    }).populate("jobId", "_id title");
+
+    res.status(200).json(applications);
+
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({
+      message: "Server error"
+    });
+  }
+};
