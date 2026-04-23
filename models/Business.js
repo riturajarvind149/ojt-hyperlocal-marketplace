@@ -28,6 +28,10 @@ const businessSchema = new mongoose.Schema({
 
   location:{
     type:String
+  },
+
+  bio:{
+    type:String
   }
 
 },{timestamps:true});

@@ -1,28 +1,61 @@
-// 📌 TOPIC: Application Model
-// 📌 PURPOSE: Ye model store karta hai jab koi student kisi job ke liye apply karta hai
-
-const mongoose = require("mongoose");
+﻿const mongoose = require("mongoose");
 
 const applicationSchema = new mongoose.Schema({
-
-  // Student ka ID (kisne apply kiya)
   studentId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Student"
   },
-
-  // Job ka ID (kis job pe apply kiya)
   jobId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Job"
   },
-
-  // Application status (default: pending)
   status: {
     type: String,
+    enum: ["pending", "approved", "rejected", "in_progress", "completed"],
     default: "pending"
+  },
+  testScore: {
+    type: Number,
+    default: 0
+  },
+  timeTaken: {
+    type: Number,
+    default: 0
+  },
+  rankingScore: {
+    type: Number,
+    default: 0
+  },
+  notes: {
+    type: String,
+    default: ""
+  },
+  matchedSkills: {
+    type: [String],
+    default: []
+  },
+  conversationId: {
+    type: String,
+    default: ""
+  },
+  testResult: {
+    attemptedAt: Date,
+    totalQuestions: {
+      type: Number,
+      default: 0
+    },
+    correctAnswers: {
+      type: Number,
+      default: 0
+    },
+    breakdown: [
+      {
+        skill: String,
+        score: Number
+      }
+    ]
   }
-
 }, { timestamps: true });
 
 module.exports = mongoose.model("Application", applicationSchema);
+

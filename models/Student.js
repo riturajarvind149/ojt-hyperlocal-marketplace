@@ -26,6 +26,14 @@ const StudentSchema = new mongoose.Schema({
     type:String
   },
 
+  location:{
+    type:String
+  },
+
+  bio:{
+    type:String
+  },
+
   skills:{
     type:[String]
   }
