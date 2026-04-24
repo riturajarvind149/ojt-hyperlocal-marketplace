@@ -190,6 +190,8 @@ exports.applyJob = async (req, res) => {
       timeTaken: assessment.timeTaken,
       rankingScore: assessment.rankingScore,
       matchedSkills: assessment.matchedSkills,
+      skillMatchScore: Math.round((assessment.matchedSkills.length / Math.max(job.skills.length, 1)) * 100),
+      status: job.aiTest?.generated ? "test_pending" : "pending",
       notes: assessment.matchedSkills.length
         ? `Matched skills: ${assessment.matchedSkills.join(", ")}`
         : "Strong interest shown. Assessment score generated from foundational skills.",
@@ -204,6 +206,7 @@ exports.applyJob = async (req, res) => {
     await application.save();
 
     const business = await Business.findById(job.businessId);
+    const hasAiTest = job.aiTest?.generated && job.aiTest.questions?.length > 0;
     await Message.create([
       {
         conversationId,
@@ -211,7 +214,9 @@ exports.applyJob = async (req, res) => {
         jobId: job._id,
         senderRole: "system",
         senderName: "LocalHire AI",
-        text: `Application received. Simulated skill test completed with score ${assessment.testScore}.`
+        text: hasAiTest
+          ? `Application received. Please complete the skill test to be ranked. Go to My Applications → Take Test.`
+          : `Application received. Simulated skill test completed with score ${assessment.testScore}.`
       },
       {
         conversationId,
@@ -220,7 +225,7 @@ exports.applyJob = async (req, res) => {
         senderRole: "business",
         senderId: job.businessId,
         senderName: business?.name || "Business",
-        text: `Thanks for applying to ${job.title}. We'll review your assessment and get back to you soon.`
+        text: `Thanks for applying to ${job.title}. ${hasAiTest ? "Please complete the skill test to be considered." : "We'll review your assessment and get back to you soon."}`
       }
     ]);
 
@@ -236,6 +241,7 @@ exports.applyJob = async (req, res) => {
 
     res.status(201).json({
       message: "Applied successfully",
+      hasAiTest: !!(job.aiTest?.generated && job.aiTest.questions?.length),
       application: formatApplication(populatedApplication)
     });
   } catch (error) {

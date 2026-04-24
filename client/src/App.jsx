@@ -22,10 +22,14 @@ const sectionRoutes = {
 };
 
 function routeFromPath(pathname) {
-  const businessMatch = pathname.match(/^\/business\/jobs\/([^/]+)\/(rankings|team-selection)$/);
+  const businessMatch = pathname.match(/^\/business\/jobs\/([^/]+)\/(rankings|team-selection|ai-rankings)$/);
   if (businessMatch) {
     return { screen: "business", section: businessMatch[2], jobId: businessMatch[1] };
   }
+  // AI test route: /test/:jobId
+  const testMatch = pathname.match(/^\/test\/([^/]+)$/);
+  if (testMatch) return { screen: "test", section: "", jobId: testMatch[1] };
+
   if (pathname.startsWith("/student"))  return { screen: "student",  section: pathname.split("/")[2] || "dashboard" };
   if (pathname.startsWith("/business")) return { screen: "business", section: pathname.split("/")[2] || "dashboard" };
   if (pathname === "/choose-role")      return { screen: "choose-role",    section: "" };
@@ -300,14 +304,19 @@ export default function App() {
 
     setBusy(true);
     try {
-      await request("/jobs/apply", {
+      const result = await request("/jobs/apply", {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({ jobId })
       });
       await Promise.all([loadStudentApplications(), loadJobs(), loadInbox()]);
-      showNotice("Application sent! Your simulated skill test score has been recorded.");
-      navigate("/student/applications");
+      if (result.hasAiTest) {
+        showNotice("Applied! Complete the skill test to be ranked.");
+        navigate(`/test/${jobId}`);
+      } else {
+        showNotice("Application sent! Your simulated skill test score has been recorded.");
+        navigate("/student/applications");
+      }
     } catch (error) {
       showNotice(error.message, "error");
     } finally {
@@ -411,6 +420,37 @@ export default function App() {
     }
   }
 
+  async function generateAiTest(jobId, jobTitle, jobSkills) {
+    const topic = window.prompt(
+      `Generate AI test for: "${jobTitle}"\n\nEnter the test topic (e.g. "React", "Mathematics", "Marketing"):\n(Default: ${jobSkills[0] || jobTitle})`,
+      jobSkills[0] || jobTitle
+    );
+    if (!topic) return;
+
+    const difficulty = window.prompt("Difficulty level? (easy / medium / hard)", "medium") || "medium";
+    const count = window.prompt("Number of questions? (3-10)", "5") || "5";
+
+    setBusy(true);
+    try {
+      const result = await request("/ai/generate-test", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          jobId,
+          topic: topic.trim(),
+          difficulty,
+          numberOfQuestions: Number(count)
+        })
+      });
+      await loadJobs();
+      showNotice(`✅ ${result.message}`);
+    } catch (error) {
+      showNotice(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function deleteJob(jobId) {
     if (!user || user.role !== "business") {
       showNotice("You must be logged in as a business to delete jobs.", "error");
@@ -467,6 +507,7 @@ export default function App() {
     <div className="app-shell">
       {notice.text && <div className={`toast toast-${notice.type}`}>{notice.text}</div>}
       {route.screen === "home"           && <Home navigate={navigate} />}
+      {route.screen === "test"           && <TestPage jobId={route.jobId} navigate={navigate} authHeaders={authHeaders} showNotice={showNotice} />}
       {route.screen === "local-services" && <LocalServicesPage navigate={navigate} />}
       {route.screen === "local-workers"  && <LocalWorkersPage category={route.section} navigate={navigate} />}
       {route.screen === "choose-role"    && <RoleChoice roleChoice={roleChoice} setRoleChoice={setRoleChoice} navigate={navigate} />}
@@ -512,6 +553,7 @@ export default function App() {
               onNavigate={navigate}
               onSelectTeam={selectTeam}
               onDeleteJob={deleteJob}
+              onGenerateTest={generateAiTest}
               busy={busy}
             />
           </DashboardShell>
@@ -929,7 +971,7 @@ function StudentArea({ route, user, jobs, applications, inbox, activeConversatio
   const earnings = applications.filter((app) => ["in_progress", "completed"].includes(app.status)).reduce((sum, app) => sum + Number(app.jobId?.budget || 0), 0);
 
   if (route.section === "jobs") return <StudentJobs jobs={jobs} appliedIds={appliedIds} onApply={onApply} busy={busy} />;
-  if (route.section === "applications") return <StudentApplications applications={applications} onOpenConversation={onOpenConversation} />;
+  if (route.section === "applications") return <StudentApplications applications={applications} onOpenConversation={onOpenConversation} navigate={navigate} />;
   if (route.section === "messages") return <MessagesScreen role="student" inbox={inbox} activeConversation={activeConversation} onOpenConversation={onOpenConversation} onSendMessage={onSendMessage} />;
   if (route.section === "profile") return <ProfileEditor user={user} onSave={onSaveProfile} />;
 
@@ -946,27 +988,28 @@ function StudentArea({ route, user, jobs, applications, inbox, activeConversatio
       <SectionTitle title="Recommended for You" />
       <JobsList jobs={jobs.filter((job) => job.status === "open").slice(0, 4)} appliedIds={appliedIds} onApply={onApply} busy={busy} />
       <SectionTitle title="Recent Applications" />
-      <StudentApplications applications={applications.slice(0, 4)} onOpenConversation={onOpenConversation} compact />
+      <StudentApplications applications={applications.slice(0, 4)} onOpenConversation={onOpenConversation} navigate={navigate} compact />
     </>
   );
 }
 
-function BusinessArea({ route, user, jobs, applications, inbox, activeConversation, rankings, teamSuggestions, onCreateJob, onUpdateStatus, onOpenConversation, onSendMessage, onSaveProfile, onNavigate, onSelectTeam, onDeleteJob, busy }) {
+function BusinessArea({ route, user, jobs, applications, inbox, activeConversation, rankings, teamSuggestions, onCreateJob, onUpdateStatus, onOpenConversation, onSendMessage, onSaveProfile, onNavigate, onSelectTeam, onDeleteJob, onGenerateTest, busy }) {
   const ownJobs = jobs.filter((job) => {
     const jobBusinessId = String(job.businessId?._id || job.businessId || "");
     const userId = String(user?.id || "");
     return jobBusinessId === userId && jobBusinessId !== "";
   });
-  const pendingApplications = applications.filter((app) => app.status === "pending").length;
+  const pendingApplications = applications.filter((app) => app.status === "pending" || app.status === "test_pending").length;
   const inProgressJobs = ownJobs.filter((job) => job.status === "in_progress").length;
   const hiredCount = applications.filter((app) => ["approved", "in_progress", "completed"].includes(app.status)).length;
 
   if (route.section === "post-job") return <PostJobForm onCreateJob={onCreateJob} busy={busy} />;
-  if (route.section === "jobs") return <BusinessJobs jobs={ownJobs} onNavigate={onNavigate} onDeleteJob={onDeleteJob} busy={busy} />;
+  if (route.section === "jobs") return <BusinessJobs jobs={ownJobs} onNavigate={onNavigate} onDeleteJob={onDeleteJob} onGenerateTest={onGenerateTest} busy={busy} />;
   if (route.section === "applications") return <BusinessApplications applications={applications} onUpdateStatus={onUpdateStatus} onOpenConversation={onOpenConversation} busy={busy} />;
   if (route.section === "messages") return <MessagesScreen role="business" inbox={inbox} activeConversation={activeConversation} onOpenConversation={onOpenConversation} onSendMessage={onSendMessage} />;
   if (route.section === "profile") return <ProfileEditor user={user} onSave={onSaveProfile} />;
   if (route.section === "rankings") return <RankingsScreen rankings={rankings} onNavigate={onNavigate} />;
+  if (route.section === "ai-rankings") return <AiRankingsScreen jobId={route.jobId} onNavigate={onNavigate} />;
   if (route.section === "team-selection") return <TeamSelectionScreen jobId={route.jobId} suggestions={teamSuggestions} onSelectTeam={onSelectTeam} />;
 
   return (
@@ -982,7 +1025,7 @@ function BusinessArea({ route, user, jobs, applications, inbox, activeConversati
       <section className="two-column">
         <div>
           <SectionTitle title="Your Jobs" />
-          <BusinessJobs jobs={ownJobs.slice(0, 4)} onNavigate={onNavigate} onDeleteJob={onDeleteJob} busy={busy} compact />
+          <BusinessJobs jobs={ownJobs.slice(0, 4)} onNavigate={onNavigate} onDeleteJob={onDeleteJob} onGenerateTest={onGenerateTest} busy={busy} compact />
         </div>
         <PostJobForm onCreateJob={onCreateJob} busy={busy} compact />
       </section>
@@ -1082,7 +1125,7 @@ function JobsList({ jobs, appliedIds, onApply, busy }) {
   );
 }
 
-function StudentApplications({ applications, onOpenConversation, compact = false }) {
+function StudentApplications({ applications, onOpenConversation, navigate, compact = false }) {
   if (!applications.length) return <EmptyState title="No applications yet" text="Apply to a job to see simulated test scores, statuses, and messages here." />;
   return (
     <div className="list-stack">
@@ -1095,25 +1138,37 @@ function StudentApplications({ applications, onOpenConversation, compact = false
                 <p>{application.jobId?.businessId?.name || "Business"} · Applied {formatRelative(application.createdAt)}</p>
               </div>
               <div className="score-block">
-                <strong>{application.testScore || 0}</strong>
-                <span>Test Score</span>
+                <strong>{application.finalScore || application.testScore || 0}</strong>
+                <span>{application.testSubmitted ? "Final Score" : "Sim. Score"}</span>
               </div>
             </div>
             <div className="stats-inline">
-              <span className={`status-pill ${application.status}`}>{application.status.replace("_", " ")}</span>
-              <span>Ranking Score: {application.rankingScore || 0}</span>
-              <span>Time Taken: {application.timeTaken || 0} min</span>
+              <span className={`status-pill ${application.status}`}>{(application.status || "pending").replace("_", " ")}</span>
+              {application.testSubmitted
+                ? <span>Real Test: {application.realTestScore || 0}%</span>
+                : <span>Skill Match: {application.skillMatchScore || 0}%</span>
+              }
+              <span>Time: {application.timeTaken || 0} min</span>
             </div>
             <p className="muted-text">{application.notes || "Structured review in progress."}</p>
           </div>
-          {!compact && <div className="button-row"><button className="secondary-button" onClick={() => onOpenConversation(application._id)}>Message Employer</button></div>}
+          {!compact && (
+            <div className="button-row">
+              {application.status === "test_pending" && navigate && (
+                <button className="primary-button small" onClick={() => navigate(`/test/${application.jobId?._id}`)}>
+                  🎯 Take Test
+                </button>
+              )}
+              <button className="secondary-button" onClick={() => onOpenConversation(application._id)}>Message Employer</button>
+            </div>
+          )}
         </article>
       ))}
     </div>
   );
 }
 
-function BusinessJobs({ jobs, onNavigate, onDeleteJob, busy, compact = false }) {
+function BusinessJobs({ jobs, onNavigate, onDeleteJob, onGenerateTest, busy, compact = false }) {
   if (!jobs.length) return <EmptyState title="No jobs posted yet" text="Post a job to generate tests and start receiving ranked applicants." />;
   return (
     <div className="list-stack">
@@ -1124,16 +1179,23 @@ function BusinessJobs({ jobs, onNavigate, onDeleteJob, busy, compact = false }) 
               <h3>{job.title}</h3>
               <p>{formatMoney(job.budget)} · {job.location || "Local"} · Posted {formatRelative(job.createdAt)}</p>
             </div>
-            <span className={`status-pill ${job.status}`}>{job.status.replace("_", " ")}</span>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+              <span className={`status-pill ${job.status}`}>{job.status.replace("_", " ")}</span>
+              {job.aiTest?.generated && <span className="chip accent" style={{ fontSize: "0.75rem" }}>🤖 AI Test Ready</span>}
+            </div>
           </div>
           <div className="chip-wrap">
             {(job.skills || []).map((skill) => <span key={skill} className="chip neutral">{skill}</span>)}
             {job.teamBased && <span className="chip accent">Team Based</span>}
           </div>
           {!compact && (
-            <div className="button-row">
+            <div className="button-row wrap">
               <button className="secondary-button" onClick={() => onNavigate(`/business/jobs/${job._id}/rankings`)}>View Rankings</button>
+              <button className="secondary-button" onClick={() => onNavigate(`/business/jobs/${job._id}/ai-rankings`)}>🏆 AI Rankings</button>
               {job.teamBased && <button className="primary-button small" onClick={() => onNavigate(`/business/jobs/${job._id}/team-selection`)}>Team Suggestions</button>}
+              {job.status === "open" && !job.aiTest?.generated && onGenerateTest && (
+                <button className="primary-button small" disabled={busy} onClick={() => onGenerateTest(job._id, job.title, job.skills)}>🤖 Generate AI Test</button>
+              )}
               {job.status === "open" && <button className="danger-link" disabled={busy} onClick={() => onDeleteJob(job._id)}>Delete</button>}
             </div>
           )}
@@ -1418,6 +1480,287 @@ function PostJobForm({ onCreateJob, busy, compact = false }) {
       <p className="helper-copy">Posting this job generates a simulated skill test based on the skills you provide.</p>
       <button className="primary-button" disabled={busy}>{busy ? "Posting..." : compact ? "Post Job" : "Post Job & Generate Test"}</button>
     </form>
+  );
+}
+
+// ─── AI TEST PAGE ─────────────────────────────────────────────────
+function TestPage({ jobId, navigate, authHeaders, showNotice }) {
+  const [testData, setTestData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [current, setCurrent] = useState(0);
+  const [answers, setAnswers] = useState({});
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [submitted, setSubmitted] = useState(false);
+  const [result, setResult] = useState(null);
+  const [tabWarnings, setTabWarnings] = useState(0);
+  const timerRef = useRef(null);
+
+  // Fetch test
+  useEffect(() => {
+    async function fetchTest() {
+      try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/ai/test/${jobId}`, {
+          headers: { "Content-Type": "application/json", ...authHeaders() }
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message);
+        setTestData(data);
+        setTimeLeft(data.timeLimit * 60);
+      } catch (e) {
+        showNotice(e.message, "error");
+        navigate("/student/applications");
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchTest();
+  }, [jobId]);
+
+  // Timer
+  useEffect(() => {
+    if (!testData || submitted) return;
+    timerRef.current = setInterval(() => {
+      setTimeLeft((t) => {
+        if (t <= 1) { clearInterval(timerRef.current); handleSubmit(true); return 0; }
+        return t - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timerRef.current);
+  }, [testData, submitted]);
+
+  // Anti-cheat: tab switch detection
+  useEffect(() => {
+    function onVisibilityChange() {
+      if (document.hidden && !submitted) {
+        setTabWarnings((w) => {
+          const next = w + 1;
+          if (next >= 3) { handleSubmit(true); }
+          return next;
+        });
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [submitted]);
+
+  // Anti-cheat: disable right click
+  useEffect(() => {
+    const prevent = (e) => e.preventDefault();
+    document.addEventListener("contextmenu", prevent);
+    return () => document.removeEventListener("contextmenu", prevent);
+  }, []);
+
+  async function handleSubmit(autoSubmit = false) {
+    if (submitted) return;
+    clearInterval(timerRef.current);
+    setSubmitted(true);
+
+    const timeTakenMinutes = testData
+      ? Math.round((testData.timeLimit * 60 - timeLeft) / 60)
+      : 0;
+
+    const answersArray = Object.entries(answers).map(([idx, selected]) => ({
+      questionIndex: Number(idx),
+      selected
+    }));
+
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/ai/test/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ jobId, answers: answersArray, timeTakenMinutes })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+      setResult(data.result);
+    } catch (e) {
+      showNotice(e.message, "error");
+    }
+  }
+
+  const mins = String(Math.floor(timeLeft / 60)).padStart(2, "0");
+  const secs = String(timeLeft % 60).padStart(2, "0");
+  const timerClass = timeLeft < 60 ? "test-timer danger" : timeLeft < 180 ? "test-timer warning" : "test-timer";
+
+  if (loading) return <main className="loading-screen" style={{ background: "#0d0d0d", color: "#fff" }}>Loading test...</main>;
+
+  if (result) {
+    const pct = result.finalScore || 0;
+    return (
+      <div className="result-shell">
+        <div className="result-card">
+          <h2 style={{ marginBottom: 6 }}>Test Complete 🎉</h2>
+          <p style={{ color: "#888", marginBottom: 24 }}>{testData?.jobTitle}</p>
+          <div className="result-score-ring" style={{ "--pct": `${pct * 3.6}deg` }}>
+            <span className="result-score-num">{pct}</span>
+          </div>
+          <p style={{ color: "#888", marginBottom: 0 }}>Final Score</p>
+          <div className="result-breakdown">
+            <div className="result-stat">
+              <strong>{result.realTestScore}%</strong>
+              <span>Test Score</span>
+            </div>
+            <div className="result-stat">
+              <strong>{result.skillMatchScore}%</strong>
+              <span>Skill Match</span>
+            </div>
+            <div className="result-stat">
+              <strong>{result.correctAnswers}/{result.totalQuestions}</strong>
+              <span>Correct</span>
+            </div>
+          </div>
+          <p style={{ color: "#888", fontSize: "0.85rem", marginBottom: 20 }}>
+            Time taken: {result.timeTakenMinutes} min · Formula: (Test×0.6) + (Skills×0.3) − (Time×0.1)
+          </p>
+          <button className="result-back-btn" onClick={() => navigate("/student/applications")}>
+            Back to My Applications
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const q = testData?.questions?.[current];
+  const total = testData?.questions?.length || 0;
+  const letters = ["A", "B", "C", "D", "E"];
+
+  return (
+    <div className="test-shell">
+      {/* Topbar */}
+      <div className="test-topbar">
+        <div>
+          <h2>🎯 {testData?.jobTitle}</h2>
+          {tabWarnings > 0 && <small style={{ color: "#f59e0b" }}>⚠️ Tab switch warning {tabWarnings}/3</small>}
+        </div>
+        <div className={timerClass}>{mins}:{secs}</div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="test-progress-bar">
+        <div className="test-progress-fill" style={{ width: `${((current + 1) / total) * 100}%` }} />
+      </div>
+
+      {/* Question */}
+      <div className="test-body">
+        <div className="test-card">
+          <div className="test-q-meta">
+            <span className="test-q-num">Question {current + 1} of {total}</span>
+            <div className="test-dot-nav">
+              {testData.questions.map((_, i) => (
+                <div
+                  key={i}
+                  className={`test-dot ${answers[i] ? "answered" : ""} ${i === current ? "current" : ""}`}
+                  onClick={() => setCurrent(i)}
+                />
+              ))}
+            </div>
+          </div>
+
+          <p className="test-q-text">{q?.question}</p>
+
+          <div className="test-options">
+            {(q?.options || []).map((opt, i) => (
+              <button
+                key={i}
+                className={`test-option ${answers[current] === opt ? "selected" : ""}`}
+                onClick={() => setAnswers((prev) => ({ ...prev, [current]: opt }))}
+              >
+                <span className="opt-letter">{letters[i]}</span>
+                {opt}
+              </button>
+            ))}
+          </div>
+
+          <div className="test-nav">
+            <button className="test-nav-btn" disabled={current === 0} onClick={() => setCurrent((c) => c - 1)}>← Previous</button>
+            <span style={{ color: "#888", fontSize: "0.85rem" }}>{Object.keys(answers).length}/{total} answered</span>
+            {current < total - 1
+              ? <button className="test-nav-btn" onClick={() => setCurrent((c) => c + 1)}>Next →</button>
+              : <button className="test-submit-btn" onClick={() => handleSubmit(false)}>Submit Test ✓</button>
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── AI RANKINGS SCREEN ────────────────────────────────────────────
+function AiRankingsScreen({ jobId, onNavigate }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/ai/rankings/${jobId}`, {
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.message);
+        setData(json);
+      } catch (e) {
+        setData({ error: e.message });
+      } finally {
+        setLoading(false);
+      }
+    }
+    if (jobId) load();
+  }, [jobId]);
+
+  if (loading) return <EmptyState title="Loading AI Rankings..." text="Fetching hybrid scores." />;
+  if (data?.error) return <EmptyState title="No AI Rankings Yet" text={data.error} />;
+  if (!data?.rankings?.length) return <EmptyState title="No submissions yet" text="Rankings appear after students complete the AI test." />;
+
+  const medals = ["🥇", "🥈", "🥉"];
+
+  return (
+    <>
+      <PageHeader title="🏆 AI Hybrid Rankings" subtitle={`${data.job?.title} · ${data.totalSubmissions} submissions`} />
+
+      {/* Top 3 podium */}
+      <div className="podium-grid" style={{ marginBottom: 20 }}>
+        {data.topPerformers.map((c, i) => (
+          <div key={c.applicationId} className="podium-card">
+            <div style={{ fontSize: "2rem" }}>{medals[i] || "🎖️"}</div>
+            <span className="avatar-circle large">{initials(c.student.name)}</span>
+            <strong>{c.student.name}</strong>
+            <div style={{ fontSize: "1.6rem", fontWeight: 900 }}>{c.scores.finalScore}</div>
+            <small>Final Score</small>
+          </div>
+        ))}
+      </div>
+
+      {/* Full table */}
+      <section className="panel-card rankings-table">
+        <div className="ai-rank-row" style={{ fontWeight: 700, fontSize: "0.8rem", color: "#888", borderBottom: "2px solid rgba(17,17,17,.1)" }}>
+          <span>Rank</span><span>Student</span><span>Final</span><span>Test</span><span>Skills</span><span>Time</span>
+        </div>
+        {data.rankings.map((c) => (
+          <div key={c.applicationId} className="ai-rank-row">
+            <span className="ai-rank-medal">{medals[c.rank - 1] || `#${c.rank}`}</span>
+            <div>
+              <strong>{c.student.name}</strong>
+              <div className="score-bar-wrap">
+                <div className="score-bar-fill" style={{ width: `${c.scores.finalScore}%` }} />
+              </div>
+              <small style={{ color: "#888" }}>{(c.matchedSkills || []).join(", ") || "No skill match"}</small>
+            </div>
+            <strong>{c.scores.finalScore}</strong>
+            <span>{c.scores.realTestScore}%</span>
+            <span>{c.scores.skillMatchScore}%</span>
+            <span>{c.scores.timeTaken}m</span>
+          </div>
+        ))}
+      </section>
+
+      <div style={{ marginTop: 14, padding: "12px 16px", background: "rgba(255,255,255,.6)", borderRadius: 14, fontSize: "0.82rem", color: "#665f55" }}>
+        Formula: <strong>Final Score = (Test × 0.6) + (Skill Match × 0.3) − (Time × 0.1)</strong>
+      </div>
+    </>
   );
 }
 

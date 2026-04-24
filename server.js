@@ -15,6 +15,7 @@ if (!process.env.JWT_SECRET) {
 
 const authRoutes = require("./routes/authRoutes");
 const jobRoutes = require("./routes/jobRoutes");
+const aiRoutes = require("./routes/aiRoutes");
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.use(express.json());
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/jobs", jobRoutes);
+app.use("/api/ai", aiRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => {
