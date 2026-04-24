@@ -24,18 +24,15 @@ const sectionRoutes = {
 function routeFromPath(pathname) {
   const businessMatch = pathname.match(/^\/business\/jobs\/([^/]+)\/(rankings|team-selection)$/);
   if (businessMatch) {
-    return {
-      screen: "business",
-      section: businessMatch[2],
-      jobId: businessMatch[1]
-    };
+    return { screen: "business", section: businessMatch[2], jobId: businessMatch[1] };
   }
-
-  if (pathname.startsWith("/student")) return { screen: "student", section: pathname.split("/")[2] || "dashboard" };
+  if (pathname.startsWith("/student"))  return { screen: "student",  section: pathname.split("/")[2] || "dashboard" };
   if (pathname.startsWith("/business")) return { screen: "business", section: pathname.split("/")[2] || "dashboard" };
-  if (pathname === "/choose-role") return { screen: "choose-role", section: "" };
-  if (pathname === "/login") return { screen: "login", section: "" };
-  if (pathname === "/register") return { screen: "register", section: "" };
+  if (pathname === "/choose-role")      return { screen: "choose-role",    section: "" };
+  if (pathname === "/login")            return { screen: "login",          section: "" };
+  if (pathname === "/register")         return { screen: "register",       section: "" };
+  if (pathname === "/local-services")   return { screen: "local-services", section: "" };
+  if (pathname.startsWith("/local-services/")) return { screen: "local-workers", section: pathname.split("/")[2] || "" };
   return { screen: "home", section: "" };
 }
 
@@ -469,10 +466,12 @@ export default function App() {
   return (
     <div className="app-shell">
       {notice.text && <div className={`toast toast-${notice.type}`}>{notice.text}</div>}
-      {route.screen === "home" && <Home navigate={navigate} />}
-      {route.screen === "choose-role" && <RoleChoice roleChoice={roleChoice} setRoleChoice={setRoleChoice} navigate={navigate} />}
-      {route.screen === "login" && <AuthCard mode="login" role={roleChoice} navigate={navigate} onSubmit={handleLogin} />}
-      {route.screen === "register" && <AuthCard mode="register" role={roleChoice} navigate={navigate} onSubmit={handleRegister} />}
+      {route.screen === "home"           && <Home navigate={navigate} />}
+      {route.screen === "local-services" && <LocalServicesPage navigate={navigate} />}
+      {route.screen === "local-workers"  && <LocalWorkersPage category={route.section} navigate={navigate} />}
+      {route.screen === "choose-role"    && <RoleChoice roleChoice={roleChoice} setRoleChoice={setRoleChoice} navigate={navigate} />}
+      {route.screen === "login"          && <AuthCard mode="login"    role={roleChoice} navigate={navigate} onSubmit={handleLogin} />}
+      {route.screen === "register"       && <AuthCard mode="register" role={roleChoice} navigate={navigate} onSubmit={handleRegister} />}
       {route.screen === "student" && (
         <Protected user={user} role="student" navigate={navigate}>
           <DashboardShell role="student" user={user} navigate={navigate} logout={logout} currentPath={window.location.pathname}>
@@ -531,9 +530,84 @@ function Protected({ user, role, navigate, children }) {
   return children;
 }
 
+// ─── CATEGORY DATA ────────────────────────────────────────────────
+const CATEGORIES = [
+  { id: "ai",          icon: "🤖", label: "AI Services",          count: "320+ jobs" },
+  { id: "development", icon: "💻", label: "Development & IT",      count: "1.2k jobs" },
+  { id: "design",      icon: "🎨", label: "Design & Creative",     count: "480 jobs"  },
+  { id: "marketing",   icon: "📣", label: "Marketing",             count: "390 jobs"  },
+  { id: "writing",     icon: "✍️",  label: "Writing & Translation", count: "210 jobs"  },
+  { id: "finance",     icon: "💰", label: "Finance",               count: "140 jobs"  },
+  { id: "legal",       icon: "⚖️",  label: "Legal",                 count: "90 jobs"   },
+  { id: "engineering", icon: "🔧", label: "Engineering",           count: "260 jobs"  },
+  { id: "business",    icon: "📊", label: "Business Support",      count: "310 jobs"  },
+  { id: "local",       icon: "📍", label: "Local Services",        count: "Nearby",   isLocal: true },
+];
+
+const LOCAL_SERVICES = [
+  { id: "maid",        icon: "🧹", label: "Maid",          desc: "Daily / weekly cleaning" },
+  { id: "cook",        icon: "👨‍🍳", label: "Cook",          desc: "Home-cooked meals" },
+  { id: "cleaning",    icon: "🏠", label: "Home Cleaning",  desc: "Deep clean service" },
+  { id: "electrician", icon: "⚡", label: "Electrician",    desc: "Wiring & repairs" },
+  { id: "plumber",     icon: "🔩", label: "Plumber",        desc: "Pipe & tap fixes" },
+  { id: "carpenter",   icon: "🪚", label: "Carpenter",      desc: "Furniture & woodwork" },
+  { id: "babysitter",  icon: "👶", label: "Babysitter",     desc: "Trusted childcare" },
+  { id: "driver",      icon: "🚗", label: "Driver",         desc: "Local trips & errands" },
+];
+
+// Simulated local workers data
+const MOCK_WORKERS = {
+  maid:        [{ name: "Sunita D.", rating: 4.8, price: "₹400/day", dist: "1.2 km", avail: "Available Today" }, { name: "Rekha M.", rating: 4.6, price: "₹350/day", dist: "2.1 km", avail: "Available Tomorrow" }, { name: "Kavitha R.", rating: 4.9, price: "₹450/day", dist: "0.8 km", avail: "Available Today" }],
+  cook:        [{ name: "Ramesh K.", rating: 4.7, price: "₹500/day", dist: "1.5 km", avail: "Available Today" }, { name: "Meena S.", rating: 4.5, price: "₹420/day", dist: "3.0 km", avail: "Available Today" }],
+  cleaning:    [{ name: "CleanPro Team", rating: 4.9, price: "₹800/visit", dist: "2.4 km", avail: "Available Today" }, { name: "Sparkle Services", rating: 4.7, price: "₹650/visit", dist: "1.8 km", avail: "Available Tomorrow" }],
+  electrician: [{ name: "Vijay E.", rating: 4.8, price: "₹300/hr", dist: "0.9 km", avail: "Available Today" }, { name: "Raju Electricals", rating: 4.6, price: "₹250/hr", dist: "2.2 km", avail: "Available Today" }],
+  plumber:     [{ name: "Suresh P.", rating: 4.7, price: "₹280/hr", dist: "1.1 km", avail: "Available Today" }, { name: "Quick Fix Plumbing", rating: 4.5, price: "₹320/hr", dist: "3.5 km", avail: "Available Tomorrow" }],
+  carpenter:   [{ name: "Mohan C.", rating: 4.6, price: "₹400/hr", dist: "2.0 km", avail: "Available Today" }],
+  babysitter:  [{ name: "Priya N.", rating: 4.9, price: "₹250/hr", dist: "0.7 km", avail: "Available Today" }, { name: "Anita B.", rating: 4.8, price: "₹220/hr", dist: "1.4 km", avail: "Available Today" }],
+  driver:      [{ name: "Arun D.", rating: 4.7, price: "₹200/hr", dist: "1.0 km", avail: "Available Today" }, { name: "Sanjay V.", rating: 4.5, price: "₹180/hr", dist: "2.8 km", avail: "Available Tomorrow" }],
+};
+
+// ─── INTENT MODAL ─────────────────────────────────────────────────
+function IntentModal({ category, onClose, onHire, onWork }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <h2>{category.icon} {category.label}</h2>
+        <p>What do you want to do in this field?</p>
+        <div className="modal-options">
+          <button className="modal-option" onClick={onHire}>
+            <span className="opt-icon">🏢</span>
+            <div>
+              <strong>Hire Talent</strong>
+              <small>Post a job and find skilled freelancers</small>
+            </div>
+          </button>
+          <button className="modal-option" onClick={onWork}>
+            <span className="opt-icon">🎓</span>
+            <div>
+              <strong>Find Work</strong>
+              <small>Browse jobs and apply as a student or freelancer</small>
+            </div>
+          </button>
+        </div>
+        <button className="modal-close" onClick={onClose}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── HOME PAGE ─────────────────────────────────────────────────────
 function Home({ navigate }) {
+  const [activeCategory, setActiveCategory] = useState(null);
+
+  function handleCategoryClick(cat) {
+    if (cat.isLocal) { navigate("/local-services"); return; }
+    setActiveCategory(cat);
+  }
+
   return (
     <div className="marketing-page">
+      {/* Topbar */}
       <header className="marketing-topbar">
         <Logo navigate={navigate} />
         <nav>
@@ -541,51 +615,197 @@ function Home({ navigate }) {
           <button className="primary-button small" onClick={() => navigate("/choose-role")}>Get Started</button>
         </nav>
       </header>
+
       <main>
+        {/* Hero */}
         <section className="hero-card">
-          <span className="eyebrow">AI-Powered Job Matching</span>
-          <h1>Connecting local talent to local business with faster hiring workflows.</h1>
-          <p>LocalHire helps businesses post digital work, auto-generate skill tests, rank candidates, build teams, and start pre-hiring conversations in one place.</p>
-          <div className="button-row center">
-            <button className="primary-button" onClick={() => navigate("/choose-role")}>Get Started</button>
-            <button className="secondary-button" onClick={() => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })}>Explore Features</button>
+          <span className="eyebrow">Hyperlocal Talent & Services Platform</span>
+          <h1>Find work, hire talent, or book local services — all in one place.</h1>
+          <p>LocalHire connects businesses with skilled students, freelancers with real opportunities, and households with trusted local workers — powered by AI-simulated skill testing.</p>
+          <div className="hero-cta-row">
+            <button className="cta-hire"  onClick={() => navigate("/choose-role")}>🏢 Hire Talent</button>
+            <button className="cta-work"  onClick={() => navigate("/choose-role")}>🎓 Find Work</button>
+            <button className="cta-local" onClick={() => navigate("/local-services")}>📍 Explore Local Services</button>
           </div>
         </section>
 
-        <section className="feature-grid" id="features">
-          <FeatureCard title="AI-Powered Testing" text="Every job can generate a simulated skill test so businesses can compare candidates with structure." />
-          <FeatureCard title="Team Collaboration" text="Team-based jobs recommend complementary applicants for better local project delivery." />
-          <FeatureCard title="Hyperlocal Hiring" text="Students discover nearby opportunities and businesses hire from their own community." />
+        {/* Category Grid */}
+        <section className="category-section">
+          <h2>Browse by Field</h2>
+          <p>Click any category to hire talent, find work, or book a local service.</p>
+          <div className="category-grid">
+            {CATEGORIES.map((cat) => (
+              <button key={cat.id} className={`category-card${cat.isLocal ? " local" : ""}`} onClick={() => handleCategoryClick(cat)}>
+                <span className="cat-icon">{cat.icon}</span>
+                <span className="cat-label">{cat.label}</span>
+                <span className="cat-count">{cat.count}</span>
+              </button>
+            ))}
+          </div>
         </section>
 
+        {/* How it works */}
+        <section>
+          <SectionTitle title="How it works" />
+          <div className="how-strip">
+            <div className="how-card">
+              <div className="step">01</div>
+              <h4>Choose your field</h4>
+              <p>Pick from 9 digital categories or browse local services near you.</p>
+            </div>
+            <div className="how-card">
+              <div className="step">02</div>
+              <h4>Select your intent</h4>
+              <p>Hire talent, find work, or book a local worker — same platform, different flows.</p>
+            </div>
+            <div className="how-card">
+              <div className="step">03</div>
+              <h4>Get matched instantly</h4>
+              <p>AI-simulated skill tests rank candidates. Local workers show availability and distance.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* Metrics */}
         <section className="metrics-strip">
           <MetricCard value="2,500+" label="Active Students" />
-          <MetricCard value="450+" label="Businesses" />
+          <MetricCard value="450+"   label="Businesses" />
           <MetricCard value="1,200+" label="Jobs Posted" />
-          <MetricCard value="$125k+" label="Potential Payouts" />
+          <MetricCard value="800+"   label="Local Workers" />
         </section>
 
+        {/* CTA */}
         <section className="cta-panel">
           <h2>Ready to get started?</h2>
-          <p>Join students and businesses already using LocalHire to make hyperlocal hiring simpler.</p>
+          <p>Join students, businesses, and local workers already using LocalHire.</p>
           <div className="button-row center">
-            <button className="secondary-button inverted" onClick={() => navigate("/choose-role")}>I&apos;m a Student</button>
+            <button className="secondary-button inverted"    onClick={() => navigate("/choose-role")}>I&apos;m a Student</button>
             <button className="primary-button inverted-light" onClick={() => navigate("/choose-role")}>I&apos;m a Business</button>
+            <button className="cta-local" style={{ padding: "12px 22px" }} onClick={() => navigate("/local-services")}>Book Local Service</button>
           </div>
         </section>
       </main>
+
       <footer className="marketing-footer">
         <div>
           <strong>LocalHire</strong>
-          <p>Connecting local talent with local opportunities.</p>
+          <p>Talent, freelance work, and local services — all in one place.</p>
         </div>
         <div className="footer-links">
           <span>Browse Jobs</span>
-          <span>Post a Job</span>
+          <span>Hire Talent</span>
+          <span>Local Services</span>
           <span>How it Works</span>
-          <span>Privacy</span>
         </div>
       </footer>
+
+      {/* Intent Modal */}
+      {activeCategory && (
+        <IntentModal
+          category={activeCategory}
+          onClose={() => setActiveCategory(null)}
+          onHire={() => { setActiveCategory(null); navigate("/choose-role"); }}
+          onWork={() => { setActiveCategory(null); navigate("/choose-role"); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── LOCAL SERVICES PAGE ───────────────────────────────────────────
+function LocalServicesPage({ navigate }) {
+  return (
+    <div className="local-services-page">
+      <header className="marketing-topbar">
+        <Logo navigate={navigate} />
+        <nav>
+          <button className="ghost-button" onClick={() => navigate("/login")}>Log In</button>
+          <button className="primary-button small" onClick={() => navigate("/choose-role")}>Get Started</button>
+        </nav>
+      </header>
+      <button className="local-back" onClick={() => navigate("/")}>← Back to Home</button>
+      <span className="eyebrow green">Nearby & Available</span>
+      <h1 style={{ fontSize: "clamp(1.8rem, 4vw, 2.8rem)", margin: "10px 0 6px" }}>Book a Local Service</h1>
+      <p style={{ color: "#665f55", marginBottom: 0 }}>Trusted workers near you — verified, rated, and available today.</p>
+      <div className="local-grid">
+        {LOCAL_SERVICES.map((svc) => (
+          <button key={svc.id} className="local-card" onClick={() => navigate(`/local-services/${svc.id}`)}>
+            <span className="local-icon">{svc.icon}</span>
+            <span className="local-label">{svc.label}</span>
+            <span className="local-desc">{svc.desc}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── LOCAL WORKERS LISTING PAGE ────────────────────────────────────
+function LocalWorkersPage({ category, navigate }) {
+  const [sortBy, setSortBy] = useState("distance");
+  const svc = LOCAL_SERVICES.find((s) => s.id === category);
+  const workers = MOCK_WORKERS[category] || [];
+
+  const sorted = [...workers].sort((a, b) => {
+    if (sortBy === "rating")   return b.rating - a.rating;
+    if (sortBy === "price")    return parseInt(a.price) - parseInt(b.price);
+    return parseFloat(a.dist) - parseFloat(b.dist);
+  });
+
+  return (
+    <div className="worker-listing-page">
+      <header className="marketing-topbar">
+        <Logo navigate={navigate} />
+        <nav>
+          <button className="ghost-button" onClick={() => navigate("/login")}>Log In</button>
+          <button className="primary-button small" onClick={() => navigate("/choose-role")}>Get Started</button>
+        </nav>
+      </header>
+      <button className="local-back" onClick={() => navigate("/local-services")}>← Back to Local Services</button>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
+        <span style={{ fontSize: "2rem" }}>{svc?.icon}</span>
+        <div>
+          <h2 style={{ margin: 0 }}>{svc?.label || category} Workers</h2>
+          <p style={{ margin: 0, color: "#665f55", fontSize: "0.9rem" }}>{sorted.length} workers available near you</p>
+        </div>
+      </div>
+
+      <div className="worker-filters">
+        <span style={{ fontWeight: 700, fontSize: "0.88rem" }}>Sort by:</span>
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+          <option value="distance">Distance</option>
+          <option value="rating">Rating</option>
+          <option value="price">Price</option>
+        </select>
+        <span className="chip neutral">📍 Bangalore</span>
+        <span className="chip accent">✅ Verified Only</span>
+      </div>
+
+      {sorted.length === 0 ? (
+        <EmptyState title="No workers found" text="Try a different category or check back later." />
+      ) : (
+        <div className="worker-grid">
+          {sorted.map((w, i) => (
+            <div key={i} className="worker-card">
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div className="worker-avatar">{w.name[0]}</div>
+                <div>
+                  <div className="worker-name">{w.name}</div>
+                  <div className="worker-meta">⭐ {w.rating} · {w.dist}</div>
+                </div>
+              </div>
+              <div className="worker-price">{w.price}</div>
+              <span className={`worker-badge ${w.avail.includes("Today") ? "" : "pending"}`}>
+                {w.avail.includes("Today") ? "🟢" : "🟡"} {w.avail}
+              </span>
+              <button className="book-btn" onClick={() => alert(`Booking request sent to ${w.name}!\nFeature coming soon.`)}>
+                Book Now
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
