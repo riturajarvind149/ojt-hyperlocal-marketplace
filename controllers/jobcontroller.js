@@ -73,6 +73,9 @@ function formatApplication(application) {
       skills: job.skills || [],
       status: job.status,
       teamBased: job.teamBased,
+      mode: job.mode || "online",
+      isOffline: job.isOffline || false,
+      category: job.category || "",
       businessId: job.businessId
     } : application.jobId
   };
@@ -84,7 +87,7 @@ exports.createJob = async (req, res) => {
       return res.status(403).json({ message: "Only businesses can create jobs" });
     }
 
-    const { title, description, budget, location, skills, teamBased, isOffline } = req.body;
+    const { title, description, budget, location, skills, teamBased, isOffline, mode, category } = req.body;
 
     if (!title || !String(title).trim()) {
       return res.status(400).json({ message: "Job title is required" });
@@ -101,6 +104,9 @@ exports.createJob = async (req, res) => {
     const isTeamBased = Boolean(teamBased);
     const generatedTest = generateSkillTest(normalizedSkills);
 
+    // Resolve mode — support both old isOffline flag and new mode field
+    const resolvedMode = ["online", "offline", "both"].includes(mode) ? mode : (Boolean(isOffline) ? "offline" : "online");
+
     const job = new Job({
       title: String(title).trim(),
       description: String(description).trim(),
@@ -109,7 +115,9 @@ exports.createJob = async (req, res) => {
       skills: normalizedSkills,
       teamBased: isTeamBased,
       hiringMode: isTeamBased ? "team" : "individual",
-      isOffline: Boolean(isOffline),
+      mode: resolvedMode,
+      isOffline: resolvedMode === "offline" || resolvedMode === "both",
+      category: category ? String(category).trim().toLowerCase() : "",
       businessId: req.user.id,
       generatedTest
     });
@@ -134,7 +142,27 @@ exports.createJob = async (req, res) => {
 
 exports.getJobs = async (req, res) => {
   try {
-    const jobs = await Job.find()
+    const filter = {};
+    // ?mode=online | offline | both
+    if (req.query.mode && ["online", "offline", "both"].includes(req.query.mode)) {
+      if (req.query.mode === "offline") {
+        filter.$or = [{ mode: "offline" }, { mode: "both" }, { isOffline: true }];
+      } else if (req.query.mode === "online") {
+        filter.$or = [{ mode: "online" }, { mode: "both" }, { isOffline: { $ne: true } }];
+      }
+    }
+    // ?category=maid | cook | etc.
+    if (req.query.category) {
+      filter.category = { $regex: new RegExp(req.query.category, "i") };
+    }
+    // ?search=keyword
+    if (req.query.search) {
+      const re = new RegExp(req.query.search, "i");
+      filter.$and = filter.$and || [];
+      filter.$and.push({ $or: [{ title: re }, { description: re }, { skills: re }, { category: re }, { location: re }] });
+    }
+
+    const jobs = await Job.find(filter)
       .populate("businessId", "name email location businessType")
       .sort({ createdAt: -1 });
 
@@ -337,7 +365,7 @@ exports.getStudentApplications = async (req, res) => {
     const applications = await Application.find({ studentId: req.user.id })
       .populate({
         path: "jobId",
-        select: "_id title budget location skills status teamBased businessId",
+        select: "_id title budget location skills status teamBased businessId isOffline",
         populate: {
           path: "businessId",
           select: "name location businessType"
@@ -345,7 +373,10 @@ exports.getStudentApplications = async (req, res) => {
       })
       .sort({ createdAt: -1 });
 
-    res.status(200).json(applications.map(formatApplication));
+    // Filter out applications where the job was deleted (jobId is null after populate)
+    const valid = applications.filter((app) => app.jobId && app.jobId._id);
+
+    res.status(200).json(valid.map(formatApplication));
   } catch (error) {
     res.status(500).json({ message: "Server error" });
   }

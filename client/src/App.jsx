@@ -187,9 +187,9 @@ export default function App() {
     await Promise.all(tasks);
   }
 
-  async function loadJobs() {
+  async function loadJobs(query = "") {
     try {
-      const data = await request("/jobs");
+      const data = await request(`/jobs${query}`);
       setJobs(Array.isArray(data) ? data : []);
     } catch {
       showNotice("Backend is not reachable. Start the server with npm run dev.", "error");
@@ -337,7 +337,9 @@ export default function App() {
           location: form.location,
           skills: parseSkills(form.skills),
           teamBased: form.teamBased,
-          isOffline: form.isOffline || false
+          mode: form.mode || "online",
+          isOffline: form.mode === "offline" || form.mode === "both",
+          category: form.category || ""
         })
       });
 
@@ -499,9 +501,9 @@ export default function App() {
   return (
     <div className="app-shell">
       {notice.text && <div className={`toast toast-${notice.type}`}>{notice.text}</div>}
-      {route.screen === "home"           && <Home navigate={navigate} />}
+      {route.screen === "home"           && <Home navigate={navigate} user={user} />}
       {route.screen === "test"           && <TestPage jobId={route.jobId} navigate={navigate} authHeaders={authHeaders} showNotice={showNotice} />}
-      {route.screen === "local-services" && <LocalServicesPage navigate={navigate} />}
+      {route.screen === "local-services" && <LocalServicesPage navigate={navigate} jobs={jobs} user={user} onApply={applyJob} appliedIds={user ? studentApplications.map((a) => a.jobId?._id).filter(Boolean) : []} busy={busy} />}
       {route.screen === "local-workers"  && <LocalWorkersPage category={route.section} navigate={navigate} />}
       {route.screen === "choose-role"    && <RoleChoice roleChoice={roleChoice} setRoleChoice={setRoleChoice} navigate={navigate} />}
       {route.screen === "login"          && <AuthCard mode="login"    role={roleChoice} navigate={navigate} onSubmit={handleLogin} />}
@@ -631,12 +633,59 @@ function IntentModal({ category, onClose, onHire, onWork }) {
 }
 
 // ─── HOME PAGE ─────────────────────────────────────────────────────
-function Home({ navigate }) {
+function Home({ navigate, user }) {
   const [activeCategory, setActiveCategory] = useState(null);
 
   function handleCategoryClick(cat) {
     if (cat.isLocal) { navigate("/local-services"); return; }
     setActiveCategory(cat);
+  }
+
+  // ── Personalized hero based on auth state ──────────────────────
+  function HeroContent() {
+    if (user?.role === "student") {
+      return (
+        <section className="hero-card hero-student">
+          <span className="eyebrow green">👋 Welcome back, {user.name}</span>
+          <h1>Find your next opportunity.</h1>
+          <p>Browse jobs, complete skill tests, and get hired by local businesses — all in one place.</p>
+          <div className="hero-cta-row">
+            <button className="cta-hire" onClick={() => navigate("/student/jobs")}>🔍 Browse Jobs</button>
+            <button className="cta-work" onClick={() => navigate("/student/applications")}>📋 My Applications</button>
+            <button className="cta-local" onClick={() => navigate("/local-services")}>📍 Local Services</button>
+          </div>
+        </section>
+      );
+    }
+
+    if (user?.role === "business") {
+      return (
+        <section className="hero-card hero-business">
+          <span className="eyebrow">👋 Welcome back, {user.name}</span>
+          <h1>Find the right talent, fast.</h1>
+          <p>Post jobs, auto-generate skill tests, rank candidates, and hire the best — powered by AI.</p>
+          <div className="hero-cta-row">
+            <button className="cta-hire" onClick={() => navigate("/business/post-job")}>➕ Post a Job</button>
+            <button className="cta-work" onClick={() => navigate("/business/applications")}>👥 View Applicants</button>
+            <button className="cta-local" onClick={() => navigate("/local-services")}>📍 Local Services</button>
+          </div>
+        </section>
+      );
+    }
+
+    // Guest
+    return (
+      <section className="hero-card">
+        <span className="eyebrow">Hyperlocal Talent & Services Platform</span>
+        <h1>Find work, hire talent, or book local services — all in one place.</h1>
+        <p>LocalHire connects businesses with skilled students, freelancers with real opportunities, and households with trusted local workers — powered by AI-simulated skill testing.</p>
+        <div className="hero-cta-row">
+          <button className="cta-hire"  onClick={() => { navigate("/choose-role"); }}>🏢 Hire Talent</button>
+          <button className="cta-work"  onClick={() => { navigate("/choose-role"); }}>🎓 Find Work</button>
+          <button className="cta-local" onClick={() => navigate("/local-services")}>📍 Explore Local Services</button>
+        </div>
+      </section>
+    );
   }
 
   return (
@@ -645,23 +694,77 @@ function Home({ navigate }) {
       <header className="marketing-topbar">
         <Logo navigate={navigate} />
         <nav>
-          <button className="ghost-button" onClick={() => navigate("/login")}>Log In</button>
-          <button className="primary-button small" onClick={() => navigate("/choose-role")}>Get Started</button>
+          {user ? (
+            <>
+              <span style={{ fontSize: "0.88rem", color: "#665f55" }}>
+                {user.role === "student" ? "🎓" : "🏢"} {user.name}
+              </span>
+              <button className="primary-button small" onClick={() => navigate(user.role === "business" ? "/business/dashboard" : "/student/dashboard")}>
+                Dashboard
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="ghost-button" onClick={() => navigate("/login")}>Log In</button>
+              <button className="primary-button small" onClick={() => navigate("/choose-role")}>Get Started</button>
+            </>
+          )}
         </nav>
       </header>
 
       <main>
-        {/* Hero */}
-        <section className="hero-card">
-          <span className="eyebrow">Hyperlocal Talent & Services Platform</span>
-          <h1>Find work, hire talent, or book local services — all in one place.</h1>
-          <p>LocalHire connects businesses with skilled students, freelancers with real opportunities, and households with trusted local workers — powered by AI-simulated skill testing.</p>
-          <div className="hero-cta-row">
-            <button className="cta-hire"  onClick={() => navigate("/choose-role")}>🏢 Hire Talent</button>
-            <button className="cta-work"  onClick={() => navigate("/choose-role")}>🎓 Find Work</button>
-            <button className="cta-local" onClick={() => navigate("/local-services")}>📍 Explore Local Services</button>
-          </div>
-        </section>
+        <HeroContent />
+
+        {/* Role-specific quick actions for logged-in users */}
+        {user?.role === "student" && (
+          <section className="role-quick-actions">
+            <div className="quick-action-card" onClick={() => navigate("/student/jobs")}>
+              <span className="qa-icon">🔍</span>
+              <strong>Browse Jobs</strong>
+              <small>Find online & offline opportunities</small>
+            </div>
+            <div className="quick-action-card" onClick={() => navigate("/student/applications")}>
+              <span className="qa-icon">📋</span>
+              <strong>My Applications</strong>
+              <small>Track status & test scores</small>
+            </div>
+            <div className="quick-action-card" onClick={() => navigate("/student/messages")}>
+              <span className="qa-icon">💬</span>
+              <strong>Messages</strong>
+              <small>Chat with employers</small>
+            </div>
+            <div className="quick-action-card" onClick={() => navigate("/local-services")}>
+              <span className="qa-icon">📍</span>
+              <strong>Local Services</strong>
+              <small>Apply for offline jobs</small>
+            </div>
+          </section>
+        )}
+
+        {user?.role === "business" && (
+          <section className="role-quick-actions">
+            <div className="quick-action-card" onClick={() => navigate("/business/post-job")}>
+              <span className="qa-icon">➕</span>
+              <strong>Post a Job</strong>
+              <small>Online or offline with AI test</small>
+            </div>
+            <div className="quick-action-card" onClick={() => navigate("/business/applications")}>
+              <span className="qa-icon">👥</span>
+              <strong>Applicants</strong>
+              <small>Review & rank candidates</small>
+            </div>
+            <div className="quick-action-card" onClick={() => navigate("/business/jobs")}>
+              <span className="qa-icon">📊</span>
+              <strong>My Jobs</strong>
+              <small>Manage active postings</small>
+            </div>
+            <div className="quick-action-card" onClick={() => navigate("/local-services")}>
+              <span className="qa-icon">📍</span>
+              <strong>Local Workers</strong>
+              <small>Find on-site talent</small>
+            </div>
+          </section>
+        )}
 
         {/* Category Grid */}
         <section className="category-section">
@@ -708,16 +811,18 @@ function Home({ navigate }) {
           <MetricCard value="800+"   label="Local Workers" />
         </section>
 
-        {/* CTA */}
-        <section className="cta-panel">
-          <h2>Ready to get started?</h2>
-          <p>Join students, businesses, and local workers already using LocalHire.</p>
-          <div className="button-row center">
-            <button className="secondary-button inverted"    onClick={() => navigate("/choose-role")}>I&apos;m a Student</button>
-            <button className="primary-button inverted-light" onClick={() => navigate("/choose-role")}>I&apos;m a Business</button>
-            <button className="cta-local" style={{ padding: "12px 22px" }} onClick={() => navigate("/local-services")}>Book Local Service</button>
-          </div>
-        </section>
+        {/* CTA — only for guests */}
+        {!user && (
+          <section className="cta-panel">
+            <h2>Ready to get started?</h2>
+            <p>Join students, businesses, and local workers already using LocalHire.</p>
+            <div className="button-row center">
+              <button className="secondary-button inverted"    onClick={() => navigate("/choose-role")}>I&apos;m a Student</button>
+              <button className="primary-button inverted-light" onClick={() => navigate("/choose-role")}>I&apos;m a Business</button>
+              <button className="cta-local" style={{ padding: "12px 22px" }} onClick={() => navigate("/local-services")}>Book Local Service</button>
+            </div>
+          </section>
+        )}
       </main>
 
       <footer className="marketing-footer">
@@ -738,110 +843,201 @@ function Home({ navigate }) {
         <IntentModal
           category={activeCategory}
           onClose={() => setActiveCategory(null)}
-          onHire={() => { setActiveCategory(null); navigate("/choose-role"); }}
-          onWork={() => { setActiveCategory(null); navigate("/choose-role"); }}
+          onHire={() => { setActiveCategory(null); navigate(user?.role === "business" ? "/business/post-job" : "/choose-role"); }}
+          onWork={() => { setActiveCategory(null); navigate(user?.role === "student" ? "/student/jobs" : "/choose-role"); }}
         />
       )}
     </div>
   );
 }
 
-// ─── LOCAL SERVICES PAGE ───────────────────────────────────────────
-function LocalServicesPage({ navigate }) {
+// ─── LOCAL SERVICES PAGE (dynamic — fetches offline jobs from DB) ──
+function LocalServicesPage({ navigate, jobs, user, onApply, appliedIds, busy }) {
+  const [search, setSearch] = useState("");
+  const [selectedCat, setSelectedCat] = useState("all");
+  const [showOtherOptions, setShowOtherOptions] = useState(false);
+
+  // Offline jobs from the shared jobs array
+  const offlineJobs = useMemo(() => {
+    let list = jobs.filter((j) => j.status === "open" && (j.mode === "offline" || j.mode === "both" || j.isOffline));
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter((j) => `${j.title} ${j.description} ${j.category || ""} ${j.location || ""}`.toLowerCase().includes(q));
+    }
+    if (selectedCat !== "all") list = list.filter((j) => (j.category || "").toLowerCase() === selectedCat);
+    return list;
+  }, [jobs, search, selectedCat]);
+
+  const categories = useMemo(() => {
+    const cats = [...new Set(jobs.filter((j) => j.isOffline || j.mode === "offline" || j.mode === "both").map((j) => j.category).filter(Boolean))];
+    return cats;
+  }, [jobs]);
+
+  // Static service tiles for quick navigation (kept as entry points)
+  const staticServices = [
+    { id: "maid", icon: "🧹", label: "Maid" }, { id: "cook", icon: "👨‍🍳", label: "Cook" },
+    { id: "electrician", icon: "⚡", label: "Electrician" }, { id: "plumber", icon: "🔩", label: "Plumber" },
+    { id: "carpenter", icon: "🪚", label: "Carpenter" }, { id: "driver", icon: "🚗", label: "Driver" },
+    { id: "babysitter", icon: "👶", label: "Babysitter" }, { id: "developer", icon: "💻", label: "Developer" },
+    { id: "teacher", icon: "📚", label: "Teacher" }, { id: "accountant", icon: "💰", label: "Accountant" },
+    { id: "lawyer", icon: "⚖️", label: "Lawyer" }, { id: "other", icon: "📦", label: "Other" },
+  ];
+
   return (
     <div className="local-services-page">
       <header className="marketing-topbar">
         <Logo navigate={navigate} />
         <nav>
+          <div style={{ position: "relative" }}>
+            <button className="secondary-button" onClick={() => setShowOtherOptions((o) => !o)} style={{ marginRight: 10 }}>
+              Other Options ▾
+            </button>
+            {showOtherOptions && (
+              <div className="other-options-dropdown" style={{ right: 10 }}>
+                <p className="other-options-title">🌐 Online Work & Hiring</p>
+                <button className="other-options-item" onClick={() => { setShowOtherOptions(false); navigate("/student/jobs"); }}>📋 Browse All Jobs (Online + Offline)</button>
+                <button className="other-options-item" onClick={() => { setShowOtherOptions(false); navigate("/choose-role"); }}>🎓 Find Online Work</button>
+                <button className="other-options-item" onClick={() => { setShowOtherOptions(false); navigate("/choose-role"); }}>🏢 Hire Online Talent</button>
+                <button className="other-options-item" onClick={() => { setShowOtherOptions(false); navigate("/business/post-job"); }}>📝 Post a Job</button>
+              </div>
+            )}
+          </div>
           <button className="ghost-button" onClick={() => navigate("/login")}>Log In</button>
           <button className="primary-button small" onClick={() => navigate("/choose-role")}>Get Started</button>
         </nav>
       </header>
+
       <button className="local-back" onClick={() => navigate("/")}>← Back to Home</button>
-      <span className="eyebrow green">Nearby & Available</span>
-      <h1 style={{ fontSize: "clamp(1.8rem, 4vw, 2.8rem)", margin: "10px 0 6px" }}>Book a Local Service</h1>
-      <p style={{ color: "#665f55", marginBottom: 0 }}>Trusted workers near you — verified, rated, and available today.</p>
-      <div className="local-grid">
-        {LOCAL_SERVICES.map((svc) => (
-          <button key={svc.id} className="local-card" onClick={() => navigate(`/local-services/${svc.id}`)}>
-            <span className="local-icon">{svc.icon}</span>
-            <span className="local-label">{svc.label}</span>
-            <span className="local-desc">{svc.desc}</span>
-          </button>
-        ))}
+      <span className="eyebrow green">📍 Nearby & Available</span>
+      <h1 style={{ fontSize: "clamp(1.8rem, 4vw, 2.6rem)", margin: "10px 0 4px" }}>
+        {user?.role === "business" ? "Find Local Workers" : "Local Services & Offline Jobs"}
+      </h1>
+      <p style={{ color: "#665f55", marginBottom: 20 }}>
+        {user?.role === "business"
+          ? "Browse workers available for on-site and offline roles posted by your business."
+          : "Browse real job listings posted by local businesses — apply directly or book a service."}
+      </p>
+
+      {/* Search + category filter */}
+      <div className="local-search-bar">
+        <input
+          className="jobs-search-inline"
+          style={{ flex: 1, borderRadius: 14 }}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search offline jobs, e.g. 'cook', 'developer', 'lawyer'..."
+        />
+        <select value={selectedCat} onChange={(e) => setSelectedCat(e.target.value)} style={{ minHeight: 46, borderRadius: 14, padding: "0 14px", border: "1px solid rgba(17,17,17,.12)", background: "#fff" }}>
+          <option value="all">All Categories</option>
+          {staticServices.map((s) => <option key={s.id} value={s.id}>{s.icon} {s.label}</option>)}
+        </select>
       </div>
+
+      {/* Quick category tiles */}
+      <div className="local-grid" style={{ marginBottom: 28 }}>
+        {staticServices.map((svc) => {
+          const count = jobs.filter((j) => (j.isOffline || j.mode === "offline" || j.mode === "both") && (j.category || "").toLowerCase() === svc.id && j.status === "open").length;
+          return (
+            <button
+              key={svc.id}
+              className={`local-card${selectedCat === svc.id ? " active-cat" : ""}`}
+              onClick={() => setSelectedCat(selectedCat === svc.id ? "all" : svc.id)}
+            >
+              <span className="local-icon">{svc.icon}</span>
+              <span className="local-label">{svc.label}</span>
+              <span className="local-desc">{count > 0 ? `${count} job${count > 1 ? "s" : ""}` : "No jobs yet"}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Live job listings */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+        <h3 style={{ margin: 0 }}>
+          {offlineJobs.length} {user?.role === "business" ? "worker posting" : "offline job"}{offlineJobs.length !== 1 ? "s" : ""} found
+        </h3>
+        <button className="secondary-button" style={{ fontSize: "0.85rem", padding: "8px 14px" }} onClick={() => navigate("/student/jobs")}>
+          View All Jobs →
+        </button>
+      </div>
+
+      {offlineJobs.length === 0 ? (
+        <div className="panel-card" style={{ padding: 32, textAlign: "center" }}>
+          <p style={{ fontSize: "1.5rem", margin: "0 0 8px" }}>📭</p>
+          <h3>{user?.role === "business" ? "No workers available yet" : "No offline jobs posted yet"}</h3>
+          <p style={{ color: "#665f55" }}>
+            {user?.role === "business"
+              ? "Post an offline job to find local workers near you."
+              : "Be the first to apply, or browse online opportunities."}
+          </p>
+          <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 16 }}>
+            <button className="primary-button small" onClick={() => navigate(user?.role === "business" ? "/business/post-job" : "/student/jobs")}>
+              {user?.role === "business" ? "Post a Job" : "Browse Online Jobs"}
+            </button>
+            {user?.role !== "business" && (
+              <button className="secondary-button" onClick={() => navigate("/student/jobs")}>Browse Online Jobs</button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="list-stack">
+          {offlineJobs.map((job) => {
+            const applied = (appliedIds || []).includes(job._id);
+            return (
+              <article key={job._id} className="panel-card application-card">
+                <div className="card-row space-between">
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <h3 style={{ margin: 0 }}>{job.title}</h3>
+                      <span className="offline-badge">📍 {job.mode === "both" ? "Online + Offline" : "Offline"}</span>
+                      {job.category && <span className="chip neutral" style={{ fontSize: "0.75rem" }}>{job.category}</span>}
+                    </div>
+                    <p style={{ margin: "4px 0 0", color: "#665f55", fontSize: "0.88rem" }}>
+                      {job.businessId?.name || "Business"} · {job.location || "Location TBD"} · {formatRelative(job.createdAt)}
+                    </p>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontWeight: 800, fontSize: "1.1rem" }}>{formatMoney(job.budget)}</div>
+                    <span className={`status-pill ${job.status}`}>{job.status}</span>
+                  </div>
+                </div>
+                <p style={{ color: "#665f55", fontSize: "0.9rem", margin: "8px 0" }}>{job.description}</p>
+                <div className="chip-wrap">
+                  {(job.skills || []).map((s) => <span key={s} className="chip neutral">{s}</span>)}
+                  {job.teamBased && <span className="chip accent">Team Based</span>}
+                </div>
+                <div className="button-row" style={{ marginTop: 8 }}>
+                  {user?.role === "business" ? (
+                    <button className="primary-button small" onClick={() => navigate("/business/applications")}>
+                      View Applicants
+                    </button>
+                  ) : (
+                    <button
+                      className={applied ? "secondary-button" : "primary-button small"}
+                      disabled={applied || busy}
+                      onClick={() => onApply && onApply(job._id)}
+                    >
+                      {applied ? "✓ Applied" : "Apply Now"}
+                    </button>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+
     </div>
   );
 }
 
-// ─── LOCAL WORKERS LISTING PAGE ────────────────────────────────────
+// ─── LOCAL WORKERS PAGE — redirects to unified local services with category filter
 function LocalWorkersPage({ category, navigate }) {
-  const [sortBy, setSortBy] = useState("distance");
-  const svc = LOCAL_SERVICES.find((s) => s.id === category);
-  const workers = MOCK_WORKERS[category] || [];
-
-  const sorted = [...workers].sort((a, b) => {
-    if (sortBy === "rating")   return b.rating - a.rating;
-    if (sortBy === "price")    return parseInt(a.price) - parseInt(b.price);
-    return parseFloat(a.dist) - parseFloat(b.dist);
-  });
-
-  return (
-    <div className="worker-listing-page">
-      <header className="marketing-topbar">
-        <Logo navigate={navigate} />
-        <nav>
-          <button className="ghost-button" onClick={() => navigate("/login")}>Log In</button>
-          <button className="primary-button small" onClick={() => navigate("/choose-role")}>Get Started</button>
-        </nav>
-      </header>
-      <button className="local-back" onClick={() => navigate("/local-services")}>← Back to Local Services</button>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
-        <span style={{ fontSize: "2rem" }}>{svc?.icon}</span>
-        <div>
-          <h2 style={{ margin: 0 }}>{svc?.label || category} Workers</h2>
-          <p style={{ margin: 0, color: "#665f55", fontSize: "0.9rem" }}>{sorted.length} workers available near you</p>
-        </div>
-      </div>
-
-      <div className="worker-filters">
-        <span style={{ fontWeight: 700, fontSize: "0.88rem" }}>Sort by:</span>
-        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-          <option value="distance">Distance</option>
-          <option value="rating">Rating</option>
-          <option value="price">Price</option>
-        </select>
-        <span className="chip neutral">📍 Bangalore</span>
-        <span className="chip accent">✅ Verified Only</span>
-      </div>
-
-      {sorted.length === 0 ? (
-        <EmptyState title="No workers found" text="Try a different category or check back later." />
-      ) : (
-        <div className="worker-grid">
-          {sorted.map((w, i) => (
-            <div key={i} className="worker-card">
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div className="worker-avatar">{w.name[0]}</div>
-                <div>
-                  <div className="worker-name">{w.name}</div>
-                  <div className="worker-meta">⭐ {w.rating} · {w.dist}</div>
-                </div>
-              </div>
-              <div className="worker-price">{w.price}</div>
-              <span className={`worker-badge ${w.avail.includes("Today") ? "" : "pending"}`}>
-                {w.avail.includes("Today") ? "🟢" : "🟡"} {w.avail}
-              </span>
-              <button className="book-btn" onClick={() => alert(`Booking request sent to ${w.name}!\nFeature coming soon.`)}>
-                Book Now
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  // Just redirect to local-services with the category pre-selected
+  useEffect(() => {
+    navigate("/local-services");
+  }, []);
+  return null;
 }
 function RoleChoice({ roleChoice, setRoleChoice, navigate }) {
   return (
@@ -1031,15 +1227,19 @@ function StudentJobs({ jobs, appliedIds, onApply, busy }) {
   const [location, setLocation] = useState("all");
   const [sort, setSort] = useState("recent");
   const [selectedSkills, setSelectedSkills] = useState([]);
+  const [modeFilter, setModeFilter] = useState("all"); // all | online | offline
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const locations = useMemo(() => ["all", ...new Set(jobs.map((job) => job.location).filter(Boolean))], [jobs]);
   const skillOptions = useMemo(() => [...new Set(jobs.flatMap((job) => job.skills || []))], [jobs]);
 
   const filtered = useMemo(() => {
     let list = jobs.filter((job) => job.status === "open");
+    if (modeFilter === "online")  list = list.filter((j) => !j.isOffline && j.mode !== "offline");
+    if (modeFilter === "offline") list = list.filter((j) => j.isOffline || j.mode === "offline" || j.mode === "both");
     if (search) {
       const query = search.toLowerCase();
-      list = list.filter((job) => `${job.title} ${job.description} ${(job.skills || []).join(" ")}`.toLowerCase().includes(query));
+      list = list.filter((job) => `${job.title} ${job.description} ${(job.skills || []).join(" ")} ${job.category || ""} ${job.location || ""}`.toLowerCase().includes(query));
     }
     if (location !== "all") list = list.filter((job) => job.location === location);
     if (selectedSkills.length) {
@@ -1047,36 +1247,82 @@ function StudentJobs({ jobs, appliedIds, onApply, busy }) {
     }
     list = [...list].sort((a, b) => sort === "budget" ? Number(b.budget || 0) - Number(a.budget || 0) : new Date(b.createdAt) - new Date(a.createdAt));
     return list;
-  }, [jobs, search, location, selectedSkills, sort]);
+  }, [jobs, search, location, selectedSkills, sort, modeFilter]);
 
   function toggleSkill(skill) {
     setSelectedSkills((current) => current.includes(skill) ? current.filter((item) => item !== skill) : [...current, skill]);
   }
 
+  const activeFilters = (location !== "all" ? 1 : 0) + selectedSkills.length + (sort !== "recent" ? 1 : 0) + (modeFilter !== "all" ? 1 : 0);
+
   return (
     <>
-      <PageHeader title="Browse Jobs" subtitle="Filter opportunities by skill, location, and recency." />
-      <section className="jobs-layout">
-        <aside className="filter-card">
-          <Input label="Search" name="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Job title, skill, company" required={false} />
-          <Select label="Location" value={location} onChange={(event) => setLocation(event.target.value)} options={locations.map((item) => ({ label: item === "all" ? "All Locations" : item, value: item }))} />
-          <Select label="Sort By" value={sort} onChange={(event) => setSort(event.target.value)} options={[{ label: "Most Recent", value: "recent" }, { label: "Highest Budget", value: "budget" }]} />
-          <div className="chip-filter">
-            <span>Skills</span>
-            <div className="chip-wrap">
-              {skillOptions.map((skill) => (
-                <button key={skill} type="button" className={selectedSkills.includes(skill) ? "chip active" : "chip"} onClick={() => toggleSkill(skill)}>
-                  {skill}
-                </button>
-              ))}
-            </div>
-          </div>
-        </aside>
+      {/* Top bar */}
+      <div className="jobs-topbar">
         <div>
-          <SectionTitle title={`${filtered.length} jobs found`} />
-          <JobsList jobs={filtered} appliedIds={appliedIds} onApply={onApply} busy={busy} />
+          <h2 style={{ margin: 0 }}>Browse Jobs</h2>
+          <p style={{ margin: "4px 0 0", color: "#665f55", fontSize: "0.9rem" }}>{filtered.length} jobs found</p>
         </div>
-      </section>
+        <div className="jobs-topbar-right">
+          {/* Mode quick-filter pills */}
+          <div style={{ display: "flex", gap: 6 }}>
+            {[["all","All"],["online","🌐 Online"],["offline","📍 Offline"]].map(([val, label]) => (
+              <button key={val} type="button" className={modeFilter === val ? "chip active" : "chip"} onClick={() => setModeFilter(val)} style={{ fontSize: "0.82rem" }}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <input
+            className="jobs-search-inline"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search jobs, skills, location..."
+          />
+          <button className="filter-toggle-btn" onClick={() => setFilterOpen((o) => !o)}>
+            ⚙ Filter {activeFilters > 0 && <span className="filter-badge">{activeFilters}</span>}
+          </button>
+        </div>
+      </div>
+
+      {/* Collapsible filter drawer */}
+      {filterOpen && (
+        <div className="filter-drawer">
+          <div className="filter-drawer-inner">
+            <div className="filter-drawer-row">
+              <div className="field" style={{ flex: 1 }}>
+                <span>Location</span>
+                <select value={location} onChange={(e) => setLocation(e.target.value)}>
+                  {locations.map((item) => <option key={item} value={item}>{item === "all" ? "All Locations" : item}</option>)}
+                </select>
+              </div>
+              <div className="field" style={{ flex: 1 }}>
+                <span>Sort By</span>
+                <select value={sort} onChange={(e) => setSort(e.target.value)}>
+                  <option value="recent">Most Recent</option>
+                  <option value="budget">Highest Budget</option>
+                </select>
+              </div>
+              <button className="filter-clear-btn" onClick={() => { setLocation("all"); setSort("recent"); setSelectedSkills([]); setModeFilter("all"); }}>
+                Clear All
+              </button>
+            </div>
+            {skillOptions.length > 0 && (
+              <div>
+                <span className="filter-label">Skills</span>
+                <div className="chip-wrap" style={{ marginTop: 8 }}>
+                  {skillOptions.map((skill) => (
+                    <button key={skill} type="button" className={selectedSkills.includes(skill) ? "chip active" : "chip"} onClick={() => toggleSkill(skill)}>
+                      {skill}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <JobsList jobs={filtered} appliedIds={appliedIds} onApply={onApply} busy={busy} />
     </>
   );
 }
@@ -1103,6 +1349,7 @@ function JobsList({ jobs, appliedIds, onApply, busy }) {
                 {(job.skills || []).map((skill) => <span key={skill} className="chip neutral">{skill}</span>)}
                 {job.teamBased && <span className="chip accent">Team Based</span>}
                 {job.isOffline && <span className="offline-badge">📍 On-site</span>}
+                {job.mode === "both" && <span className="offline-badge">🔀 Online+Offline</span>}
               </div>
             </div>
             <div className="job-side">
@@ -1119,10 +1366,12 @@ function JobsList({ jobs, appliedIds, onApply, busy }) {
 }
 
 function StudentApplications({ applications, onOpenConversation, navigate, compact = false }) {
-  if (!applications.length) return <EmptyState title="No applications yet" text="Apply to a job to see simulated test scores, statuses, and messages here." />;
+  // Filter out applications where the job was deleted
+  const valid = applications.filter((app) => app.jobId && app.jobId._id);
+  if (!valid.length) return <EmptyState title="No applications yet" text="Apply to a job to see simulated test scores, statuses, and messages here." />;
   return (
     <div className="list-stack">
-      {applications.map((application) => (
+      {valid.map((application) => (
         <article key={application._id} className="panel-card application-card">
           <div>
             <div className="card-row space-between">
@@ -1470,7 +1719,7 @@ function ProfileEditor({ user, onSave }) {
 function PostJobForm({ onCreateJob, busy, compact = false }) {
   const [form, setForm] = useState({
     title: "", description: "", budget: "", location: "", skills: "",
-    teamBased: false, isOffline: false,
+    teamBased: false, mode: "online", category: "",
     enableTest: false, testTopic: "", testDifficulty: "medium", testQuestions: "5"
   });
   const [error, setError] = useState("");
@@ -1487,11 +1736,16 @@ function PostJobForm({ onCreateJob, busy, compact = false }) {
     if (!form.description.trim()) { setError("Job description is required."); return; }
     const budget = Number(form.budget);
     if (!form.budget || isNaN(budget) || budget <= 0) { setError("Enter a valid budget amount."); return; }
-    if (form.enableTest && !form.testTopic.trim()) { setError("Enter a test topic or leave 'Enable Test' unchecked."); return; }
+    if ((form.mode === "offline" || form.mode === "both") && !form.location.trim()) {
+      setError("Location is required for offline/on-site jobs."); return;
+    }
+    if (form.enableTest && !form.testTopic.trim()) { setError("Enter a test topic or uncheck 'Enable Test'."); return; }
     setError("");
     onCreateJob(form);
-    if (!compact) setForm({ title: "", description: "", budget: "", location: "", skills: "", teamBased: false, isOffline: false, enableTest: false, testTopic: "", testDifficulty: "medium", testQuestions: "5" });
+    if (!compact) setForm({ title: "", description: "", budget: "", location: "", skills: "", teamBased: false, mode: "online", category: "", enableTest: false, testTopic: "", testDifficulty: "medium", testQuestions: "5" });
   }
+
+  const isOfflineMode = form.mode === "offline" || form.mode === "both";
 
   if (compact) {
     return (
@@ -1519,27 +1773,62 @@ function PostJobForm({ onCreateJob, busy, compact = false }) {
       <Textarea label="Job Description" name="description" value={form.description} onChange={update} required={false} />
       <div className="two-column compact-grid">
         <Input label="Budget (₹)" name="budget" type="number" min="1" value={form.budget} onChange={update} required={false} />
-        <Input label="Location" name="location" value={form.location} onChange={update} required={false} />
+        <Input label="Location" name="location" value={form.location} onChange={update} required={false} placeholder={isOfflineMode ? "Required for offline jobs" : "Optional"} />
       </div>
       <Input label="Required Skills" name="skills" value={form.skills} onChange={update} placeholder="React, TypeScript, Design" required={false} />
+
+      {/* ── Job Mode ── */}
+      <hr className="form-section-divider" />
+      <p className="form-section-title">Job Mode</p>
+      <div className="mode-selector">
+        {[
+          { value: "online",  label: "🌐 Online",       desc: "Remote / digital work" },
+          { value: "offline", label: "📍 Offline",      desc: "On-site / in-person" },
+          { value: "both",    label: "🔀 Both",         desc: "Remote + on-site" }
+        ].map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            className={`mode-option${form.mode === opt.value ? " active" : ""}`}
+            onClick={() => setForm((p) => ({ ...p, mode: opt.value }))}
+          >
+            <span>{opt.label}</span>
+            <small>{opt.desc}</small>
+          </button>
+        ))}
+      </div>
+
+      {/* Category (for offline/both) */}
+      {isOfflineMode && (
+        <div className="field">
+          <span>Service Category <small style={{ color: "#aaa", fontWeight: 400 }}>(optional)</small></span>
+          <select name="category" value={form.category} onChange={update}>
+            <option value="">— Select category —</option>
+            <option value="maid">🧹 Maid / Cleaning</option>
+            <option value="cook">👨‍🍳 Cook</option>
+            <option value="electrician">⚡ Electrician</option>
+            <option value="plumber">🔩 Plumber</option>
+            <option value="carpenter">🪚 Carpenter</option>
+            <option value="driver">🚗 Driver</option>
+            <option value="babysitter">👶 Babysitter</option>
+            <option value="security">🛡️ Security Guard</option>
+            <option value="developer">💻 Developer (On-site)</option>
+            <option value="designer">🎨 Designer (On-site)</option>
+            <option value="accountant">💰 Accountant</option>
+            <option value="lawyer">⚖️ Legal / Lawyer</option>
+            <option value="teacher">📚 Teacher / Tutor</option>
+            <option value="other">📦 Other</option>
+          </select>
+        </div>
+      )}
 
       {/* ── Job Options ── */}
       <hr className="form-section-divider" />
       <p className="form-section-title">Job Options</p>
       <label className="checkbox-row">
         <input type="checkbox" name="teamBased" checked={form.teamBased} onChange={update} />
-        Team-based project (multiple students)
+        Team-based project (multiple workers)
       </label>
-      <label className="checkbox-row">
-        <input type="checkbox" name="isOffline" checked={form.isOffline} onChange={update} />
-        📍 Need offline / on-site worker
-        {form.isOffline && <span className="offline-badge" style={{ marginLeft: 8 }}>Offline Job</span>}
-      </label>
-      {form.isOffline && (
-        <p className="helper-copy" style={{ marginTop: -6 }}>
-          Offline jobs will be visible to local workers near the location you specified above.
-        </p>
-      )}
 
       {/* ── AI Test Configuration ── */}
       <hr className="form-section-divider" />
@@ -1575,14 +1864,10 @@ function PostJobForm({ onCreateJob, busy, compact = false }) {
             </div>
             <div className="field">
               <span>Type</span>
-              <select disabled>
-                <option>MCQ</option>
-              </select>
+              <select disabled><option>MCQ</option></select>
             </div>
           </div>
-          <p className="helper-copy">
-            The AI test will be auto-generated when you post the job. Students must complete it before being ranked.
-          </p>
+          <p className="helper-copy">Students must complete this test before being ranked.</p>
         </>
       )}
 
