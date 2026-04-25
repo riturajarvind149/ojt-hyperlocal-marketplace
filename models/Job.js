@@ -8,6 +8,7 @@ const jobSchema = new mongoose.Schema({
   skills: { type: [String], default: [] },
   teamBased: { type: Boolean, default: false },
   hiringMode: { type: String, enum: ["individual", "team"], default: "individual" },
+  isOffline: { type: Boolean, default: false },
   businessId: { type: mongoose.Schema.Types.ObjectId, ref: "Business" },
   status: { type: String, enum: ["open", "in_progress", "completed"], default: "open" },
   selectedApplicationIds: { type: [mongoose.Schema.Types.ObjectId], ref: "Application", default: [] },

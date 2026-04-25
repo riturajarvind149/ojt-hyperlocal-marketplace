@@ -327,7 +327,7 @@ export default function App() {
   async function createJob(form) {
     setBusy(true);
     try {
-      await request("/jobs", {
+      const result = await request("/jobs", {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({
@@ -336,11 +336,35 @@ export default function App() {
           budget: Number(form.budget),
           location: form.location,
           skills: parseSkills(form.skills),
-          teamBased: form.teamBased
+          teamBased: form.teamBased,
+          isOffline: form.isOffline || false
         })
       });
+
+      const newJobId = result.job?._id;
+
+      // Auto-generate AI test if enabled
+      if (form.enableTest && form.testTopic?.trim() && newJobId) {
+        try {
+          const testResult = await request("/ai/generate-test", {
+            method: "POST",
+            headers: authHeaders(),
+            body: JSON.stringify({
+              jobId: newJobId,
+              topic: form.testTopic.trim(),
+              difficulty: form.testDifficulty || "medium",
+              numberOfQuestions: Number(form.testQuestions) || 5
+            })
+          });
+          showNotice(`Job posted! ${testResult.message}`);
+        } catch (testErr) {
+          showNotice("Job posted, but AI test generation failed: " + testErr.message, "error");
+        }
+      } else {
+        showNotice("Job posted successfully!");
+      }
+
       await Promise.all([loadJobs(), loadBusinessApplications()]);
-      showNotice("Job posted! AI skill test generated automatically.");
       navigate("/business/jobs");
     } catch (error) {
       showNotice(error.message, "error");
@@ -413,37 +437,6 @@ export default function App() {
       });
       setUser(data.user);
       showNotice("Profile updated successfully.");
-    } catch (error) {
-      showNotice(error.message, "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function generateAiTest(jobId, jobTitle, jobSkills) {
-    const topic = window.prompt(
-      `Generate AI test for: "${jobTitle}"\n\nEnter the test topic (e.g. "React", "Mathematics", "Marketing"):\n(Default: ${jobSkills[0] || jobTitle})`,
-      jobSkills[0] || jobTitle
-    );
-    if (!topic) return;
-
-    const difficulty = window.prompt("Difficulty level? (easy / medium / hard)", "medium") || "medium";
-    const count = window.prompt("Number of questions? (3-10)", "5") || "5";
-
-    setBusy(true);
-    try {
-      const result = await request("/ai/generate-test", {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({
-          jobId,
-          topic: topic.trim(),
-          difficulty,
-          numberOfQuestions: Number(count)
-        })
-      });
-      await loadJobs();
-      showNotice(`✅ ${result.message}`);
     } catch (error) {
       showNotice(error.message, "error");
     } finally {
@@ -553,7 +546,6 @@ export default function App() {
               onNavigate={navigate}
               onSelectTeam={selectTeam}
               onDeleteJob={deleteJob}
-              onGenerateTest={generateAiTest}
               busy={busy}
             />
           </DashboardShell>
@@ -993,7 +985,7 @@ function StudentArea({ route, user, jobs, applications, inbox, activeConversatio
   );
 }
 
-function BusinessArea({ route, user, jobs, applications, inbox, activeConversation, rankings, teamSuggestions, onCreateJob, onUpdateStatus, onOpenConversation, onSendMessage, onSaveProfile, onNavigate, onSelectTeam, onDeleteJob, onGenerateTest, busy }) {
+function BusinessArea({ route, user, jobs, applications, inbox, activeConversation, rankings, teamSuggestions, onCreateJob, onUpdateStatus, onOpenConversation, onSendMessage, onSaveProfile, onNavigate, onSelectTeam, onDeleteJob, busy }) {
   const ownJobs = jobs.filter((job) => {
     const jobBusinessId = String(job.businessId?._id || job.businessId || "");
     const userId = String(user?.id || "");
@@ -1004,11 +996,11 @@ function BusinessArea({ route, user, jobs, applications, inbox, activeConversati
   const hiredCount = applications.filter((app) => ["approved", "in_progress", "completed"].includes(app.status)).length;
 
   if (route.section === "post-job") return <PostJobForm onCreateJob={onCreateJob} busy={busy} />;
-  if (route.section === "jobs") return <BusinessJobs jobs={ownJobs} onNavigate={onNavigate} onDeleteJob={onDeleteJob} onGenerateTest={onGenerateTest} busy={busy} />;
+  if (route.section === "jobs") return <BusinessJobs jobs={ownJobs} onNavigate={onNavigate} onDeleteJob={onDeleteJob} busy={busy} />;
   if (route.section === "applications") return <BusinessApplications applications={applications} onUpdateStatus={onUpdateStatus} onOpenConversation={onOpenConversation} busy={busy} />;
   if (route.section === "messages") return <MessagesScreen role="business" inbox={inbox} activeConversation={activeConversation} onOpenConversation={onOpenConversation} onSendMessage={onSendMessage} />;
   if (route.section === "profile") return <ProfileEditor user={user} onSave={onSaveProfile} />;
-  if (route.section === "rankings") return <RankingsScreen rankings={rankings} onNavigate={onNavigate} />;
+  if (route.section === "rankings") return <RankingsScreen rankings={rankings} onNavigate={onNavigate} onUpdateStatus={onUpdateStatus} busy={busy} />;
   if (route.section === "ai-rankings") return <AiRankingsScreen jobId={route.jobId} onNavigate={onNavigate} />;
   if (route.section === "team-selection") return <TeamSelectionScreen jobId={route.jobId} suggestions={teamSuggestions} onSelectTeam={onSelectTeam} />;
 
@@ -1025,7 +1017,7 @@ function BusinessArea({ route, user, jobs, applications, inbox, activeConversati
       <section className="two-column">
         <div>
           <SectionTitle title="Your Jobs" />
-          <BusinessJobs jobs={ownJobs.slice(0, 4)} onNavigate={onNavigate} onDeleteJob={onDeleteJob} onGenerateTest={onGenerateTest} busy={busy} compact />
+          <BusinessJobs jobs={ownJobs.slice(0, 4)} onNavigate={onNavigate} onDeleteJob={onDeleteJob} busy={busy} compact />
         </div>
         <PostJobForm onCreateJob={onCreateJob} busy={busy} compact />
       </section>
@@ -1110,6 +1102,7 @@ function JobsList({ jobs, appliedIds, onApply, busy }) {
               <div className="chip-wrap">
                 {(job.skills || []).map((skill) => <span key={skill} className="chip neutral">{skill}</span>)}
                 {job.teamBased && <span className="chip accent">Team Based</span>}
+                {job.isOffline && <span className="offline-badge">📍 On-site</span>}
               </div>
             </div>
             <div className="job-side">
@@ -1168,7 +1161,7 @@ function StudentApplications({ applications, onOpenConversation, navigate, compa
   );
 }
 
-function BusinessJobs({ jobs, onNavigate, onDeleteJob, onGenerateTest, busy, compact = false }) {
+function BusinessJobs({ jobs, onNavigate, onDeleteJob, busy, compact = false }) {
   if (!jobs.length) return <EmptyState title="No jobs posted yet" text="Post a job to generate tests and start receiving ranked applicants." />;
   return (
     <div className="list-stack">
@@ -1187,15 +1180,13 @@ function BusinessJobs({ jobs, onNavigate, onDeleteJob, onGenerateTest, busy, com
           <div className="chip-wrap">
             {(job.skills || []).map((skill) => <span key={skill} className="chip neutral">{skill}</span>)}
             {job.teamBased && <span className="chip accent">Team Based</span>}
+            {job.isOffline && <span className="offline-badge">📍 Offline</span>}
           </div>
           {!compact && (
             <div className="button-row wrap">
               <button className="secondary-button" onClick={() => onNavigate(`/business/jobs/${job._id}/rankings`)}>View Rankings</button>
               <button className="secondary-button" onClick={() => onNavigate(`/business/jobs/${job._id}/ai-rankings`)}>🏆 AI Rankings</button>
               {job.teamBased && <button className="primary-button small" onClick={() => onNavigate(`/business/jobs/${job._id}/team-selection`)}>Team Suggestions</button>}
-              {job.status === "open" && !job.aiTest?.generated && onGenerateTest && (
-                <button className="primary-button small" disabled={busy} onClick={() => onGenerateTest(job._id, job.title, job.skills)}>🤖 Generate AI Test</button>
-              )}
               {job.status === "open" && <button className="danger-link" disabled={busy} onClick={() => onDeleteJob(job._id)}>Delete</button>}
             </div>
           )}
@@ -1249,31 +1240,63 @@ function BusinessApplications({ applications, onUpdateStatus, onOpenConversation
     </div>
   );
 }
-function RankingsScreen({ rankings, onNavigate }) {
+function RankingsScreen({ rankings, onNavigate, onUpdateStatus, busy }) {
   if (!rankings) return <EmptyState title="Loading rankings" text="Fetching ranked candidates for this job." />;
+
+  const medals = ["🥇", "🥈", "🥉"];
+
   return (
     <>
-      <PageHeader title="Test Results & Rankings" subtitle={`${rankings.job.title} candidate leaderboard`} />
-      <div className="podium-grid">
-        {(rankings.topPerformers || []).map((candidate, index) => (
-          <div key={candidate._id} className={`podium-card position-${index + 1}`}>
-            <span className="avatar-circle large">{initials(candidate.studentId?.name)}</span>
-            <strong>{candidate.studentId?.name}</strong>
-            <span>{candidate.testScore}</span>
-            <small>{candidate.timeTaken} min</small>
-          </div>
-        ))}
-      </div>
+      <PageHeader title="Test Results & Rankings" subtitle={`${rankings.job?.title} — candidate leaderboard`} />
+
+      {/* Podium */}
+      {rankings.topPerformers?.length > 0 && (
+        <div className="podium-grid">
+          {rankings.topPerformers.map((candidate, index) => (
+            <div key={candidate._id} className="podium-card">
+              <div style={{ fontSize: "2rem" }}>{medals[index] || "🎖️"}</div>
+              <span className="avatar-circle large">{initials(candidate.studentId?.name)}</span>
+              <strong>{candidate.studentId?.name || "Student"}</strong>
+              <div style={{ fontSize: "1.4rem", fontWeight: 900, margin: "4px 0" }}>{candidate.testScore || 0}</div>
+              <small style={{ color: "#888" }}>{candidate.timeTaken || 0} min</small>
+              <span className={`status-pill ${candidate.status}`} style={{ marginTop: 8 }}>{(candidate.status || "pending").replace("_", " ")}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Full table */}
       <section className="panel-card rankings-table">
-        {(rankings.candidates || []).map((candidate) => (
-          <div key={candidate._id} className="rank-row">
-            <strong>#{candidate.rank}</strong>
-            <span>{candidate.studentId?.name}</span>
-            <span>{candidate.testScore}</span>
-            <span>{candidate.timeTaken} min</span>
-            <button className="secondary-button" onClick={() => onNavigate(`/business/jobs/${rankings.job._id}/team-selection`)}>View Team Fit</button>
-          </div>
-        ))}
+        {!(rankings.candidates?.length) && <EmptyState title="No applicants yet" text="Rankings appear once students apply." compact />}
+        {(rankings.candidates || []).map((candidate) => {
+          const isDone = ["approved", "rejected", "in_progress", "completed"].includes(candidate.status);
+          return (
+            <div key={candidate._id} className="rank-row">
+              <strong style={{ fontSize: "1.1rem" }}>#{candidate.rank}</strong>
+              <div>
+                <strong>{candidate.studentId?.name || "Student"}</strong>
+                <div className="stats-inline" style={{ fontSize: "0.8rem", marginTop: 2 }}>
+                  <span>Score: {candidate.testScore || 0}</span>
+                  <span>Time: {candidate.timeTaken || 0}m</span>
+                  <span>Rank: {candidate.rankingScore || 0}</span>
+                </div>
+                <div className="chip-wrap" style={{ marginTop: 4 }}>
+                  {(candidate.matchedSkills || []).map(s => <span key={s} className="chip neutral" style={{ fontSize: "0.72rem", padding: "4px 8px" }}>{s}</span>)}
+                </div>
+              </div>
+              <span className={`status-pill ${candidate.status || "pending"}`}>{(candidate.status || "pending").replace("_", " ")}</span>
+              <div className="rank-actions">
+                {!isDone && onUpdateStatus && (
+                  <>
+                    <button className="accept-btn" disabled={busy} onClick={() => onUpdateStatus(candidate._id, "approved")}>✓ Accept</button>
+                    <button className="reject-btn" disabled={busy} onClick={() => onUpdateStatus(candidate._id, "rejected")}>✕ Reject</button>
+                  </>
+                )}
+                <button className="secondary-button" style={{ padding: "6px 12px", fontSize: "0.8rem" }} onClick={() => onNavigate(`/business/jobs/${rankings.job._id}/team-selection`)}>Team Fit</button>
+              </div>
+            </div>
+          );
+        })}
       </section>
     </>
   );
@@ -1445,30 +1468,53 @@ function ProfileEditor({ user, onSave }) {
 }
 
 function PostJobForm({ onCreateJob, busy, compact = false }) {
-  const [form, setForm] = useState({ title: "", description: "", budget: "", location: "", skills: "", teamBased: false });
+  const [form, setForm] = useState({
+    title: "", description: "", budget: "", location: "", skills: "",
+    teamBased: false, isOffline: false,
+    enableTest: false, testTopic: "", testDifficulty: "medium", testQuestions: "5"
+  });
   const [error, setError] = useState("");
 
   function update(event) {
     const { name, value, type, checked } = event.target;
-    setForm((current) => ({ ...current, [name]: type === "checkbox" ? checked : value }));
+    setForm((prev) => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
     setError("");
   }
 
   function submit(event) {
     event.preventDefault();
-    if (!form.title.trim()) { setError("Job title is required."); return; }
+    if (!form.title.trim())       { setError("Job title is required."); return; }
     if (!form.description.trim()) { setError("Job description is required."); return; }
     const budget = Number(form.budget);
     if (!form.budget || isNaN(budget) || budget <= 0) { setError("Enter a valid budget amount."); return; }
+    if (form.enableTest && !form.testTopic.trim()) { setError("Enter a test topic or leave 'Enable Test' unchecked."); return; }
     setError("");
     onCreateJob(form);
-    if (!compact) setForm({ title: "", description: "", budget: "", location: "", skills: "", teamBased: false });
+    if (!compact) setForm({ title: "", description: "", budget: "", location: "", skills: "", teamBased: false, isOffline: false, enableTest: false, testTopic: "", testDifficulty: "medium", testQuestions: "5" });
+  }
+
+  if (compact) {
+    return (
+      <form className="panel-card post-job-form" onSubmit={submit}>
+        <h3>Quick Post</h3>
+        {error && <p className="form-error">{error}</p>}
+        <Input label="Job Title" name="title" value={form.title} onChange={update} required={false} />
+        <div className="two-column compact-grid">
+          <Input label="Budget (₹)" name="budget" type="number" min="1" value={form.budget} onChange={update} required={false} />
+          <Input label="Location" name="location" value={form.location} onChange={update} required={false} />
+        </div>
+        <Input label="Required Skills" name="skills" value={form.skills} onChange={update} placeholder="React, Design" required={false} />
+        <button className="primary-button" disabled={busy}>{busy ? "Posting..." : "Post Job"}</button>
+      </form>
+    );
   }
 
   return (
     <form className="panel-card post-job-form" onSubmit={submit}>
-      <h3>{compact ? "Quick Post" : "Post a New Job"}</h3>
+      <h3>Post a New Job</h3>
       {error && <p className="form-error">{error}</p>}
+
+      {/* ── Basic Info ── */}
       <Input label="Job Title" name="title" value={form.title} onChange={update} required={false} />
       <Textarea label="Job Description" name="description" value={form.description} onChange={update} required={false} />
       <div className="two-column compact-grid">
@@ -1476,9 +1522,73 @@ function PostJobForm({ onCreateJob, busy, compact = false }) {
         <Input label="Location" name="location" value={form.location} onChange={update} required={false} />
       </div>
       <Input label="Required Skills" name="skills" value={form.skills} onChange={update} placeholder="React, TypeScript, Design" required={false} />
-      <label className="checkbox-row"><input type="checkbox" name="teamBased" checked={form.teamBased} onChange={update} />Team-based project</label>
-      <p className="helper-copy">Posting this job generates a simulated skill test based on the skills you provide.</p>
-      <button className="primary-button" disabled={busy}>{busy ? "Posting..." : compact ? "Post Job" : "Post Job & Generate Test"}</button>
+
+      {/* ── Job Options ── */}
+      <hr className="form-section-divider" />
+      <p className="form-section-title">Job Options</p>
+      <label className="checkbox-row">
+        <input type="checkbox" name="teamBased" checked={form.teamBased} onChange={update} />
+        Team-based project (multiple students)
+      </label>
+      <label className="checkbox-row">
+        <input type="checkbox" name="isOffline" checked={form.isOffline} onChange={update} />
+        📍 Need offline / on-site worker
+        {form.isOffline && <span className="offline-badge" style={{ marginLeft: 8 }}>Offline Job</span>}
+      </label>
+      {form.isOffline && (
+        <p className="helper-copy" style={{ marginTop: -6 }}>
+          Offline jobs will be visible to local workers near the location you specified above.
+        </p>
+      )}
+
+      {/* ── AI Test Configuration ── */}
+      <hr className="form-section-divider" />
+      <p className="form-section-title">🤖 AI Skill Test</p>
+      <label className="checkbox-row">
+        <input type="checkbox" name="enableTest" checked={form.enableTest} onChange={update} />
+        Enable AI-generated skill test for applicants
+      </label>
+      {form.enableTest && (
+        <>
+          <Input
+            label="Test Topic"
+            name="testTopic"
+            value={form.testTopic}
+            onChange={update}
+            placeholder={form.skills ? form.skills.split(",")[0].trim() : "e.g. React, Mathematics, Marketing"}
+            required={false}
+          />
+          <div className="test-config-grid">
+            <div className="field">
+              <span>Difficulty</span>
+              <select name="testDifficulty" value={form.testDifficulty} onChange={update}>
+                <option value="easy">Easy</option>
+                <option value="medium">Medium</option>
+                <option value="hard">Hard</option>
+              </select>
+            </div>
+            <div className="field">
+              <span>Questions</span>
+              <select name="testQuestions" value={form.testQuestions} onChange={update}>
+                {[3,4,5,6,7,8,10].map(n => <option key={n} value={n}>{n} questions</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <span>Type</span>
+              <select disabled>
+                <option>MCQ</option>
+              </select>
+            </div>
+          </div>
+          <p className="helper-copy">
+            The AI test will be auto-generated when you post the job. Students must complete it before being ranked.
+          </p>
+        </>
+      )}
+
+      <button className="primary-button" disabled={busy} style={{ marginTop: 8 }}>
+        {busy ? "Posting..." : form.enableTest ? "Post Job & Generate AI Test" : "Post Job"}
+      </button>
     </form>
   );
 }

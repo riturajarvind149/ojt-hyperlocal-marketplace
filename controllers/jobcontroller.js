@@ -84,7 +84,7 @@ exports.createJob = async (req, res) => {
       return res.status(403).json({ message: "Only businesses can create jobs" });
     }
 
-    const { title, description, budget, location, skills, teamBased } = req.body;
+    const { title, description, budget, location, skills, teamBased, isOffline } = req.body;
 
     if (!title || !String(title).trim()) {
       return res.status(400).json({ message: "Job title is required" });
@@ -109,6 +109,7 @@ exports.createJob = async (req, res) => {
       skills: normalizedSkills,
       teamBased: isTeamBased,
       hiringMode: isTeamBased ? "team" : "individual",
+      isOffline: Boolean(isOffline),
       businessId: req.user.id,
       generatedTest
     });
