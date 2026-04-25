@@ -603,7 +603,7 @@ const MOCK_WORKERS = {
   driver:      [{ name: "Arun D.", rating: 4.7, price: "₹200/hr", dist: "1.0 km", avail: "Available Today" }, { name: "Sanjay V.", rating: 4.5, price: "₹180/hr", dist: "2.8 km", avail: "Available Tomorrow" }],
 };
 
-// ─── INTENT MODAL ─────────────────────────────────────────────────
+// ─── INTENT MODAL — only shown to guests ──────────────────────────
 function IntentModal({ category, onClose, onHire, onWork }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -636,12 +636,30 @@ function IntentModal({ category, onClose, onHire, onWork }) {
 function Home({ navigate, user }) {
   const [activeCategory, setActiveCategory] = useState(null);
 
+  // Category click: skip modal for logged-in users, navigate directly
   function handleCategoryClick(cat) {
     if (cat.isLocal) { navigate("/local-services"); return; }
-    setActiveCategory(cat);
+
+    if (!user) {
+      // Guest — show role selection modal
+      setActiveCategory(cat);
+      return;
+    }
+
+    // Logged-in student → go to job listing
+    if (user.role === "student") {
+      navigate("/student/jobs");
+      return;
+    }
+
+    // Logged-in business → go to post job or applicants
+    if (user.role === "business") {
+      navigate("/business/post-job");
+      return;
+    }
   }
 
-  // ── Personalized hero based on auth state ──────────────────────
+  // ── Personalized hero ─────────────────────────────────────────
   function HeroContent() {
     if (user?.role === "student") {
       return (
@@ -667,7 +685,7 @@ function Home({ navigate, user }) {
           <div className="hero-cta-row">
             <button className="cta-hire" onClick={() => navigate("/business/post-job")}>➕ Post a Job</button>
             <button className="cta-work" onClick={() => navigate("/business/applications")}>👥 View Applicants</button>
-            <button className="cta-local" onClick={() => navigate("/local-services")}>📍 Local Services</button>
+            <button className="cta-local" onClick={() => navigate("/local-services")}>📍 Local Workers</button>
           </div>
         </section>
       );
@@ -680,8 +698,8 @@ function Home({ navigate, user }) {
         <h1>Find work, hire talent, or book local services — all in one place.</h1>
         <p>LocalHire connects businesses with skilled students, freelancers with real opportunities, and households with trusted local workers — powered by AI-simulated skill testing.</p>
         <div className="hero-cta-row">
-          <button className="cta-hire"  onClick={() => { navigate("/choose-role"); }}>🏢 Hire Talent</button>
-          <button className="cta-work"  onClick={() => { navigate("/choose-role"); }}>🎓 Find Work</button>
+          <button className="cta-hire"  onClick={() => navigate("/choose-role")}>🏢 Hire Talent</button>
+          <button className="cta-work"  onClick={() => navigate("/choose-role")}>🎓 Find Work</button>
           <button className="cta-local" onClick={() => navigate("/local-services")}>📍 Explore Local Services</button>
         </div>
       </section>
@@ -690,16 +708,20 @@ function Home({ navigate, user }) {
 
   return (
     <div className="marketing-page">
-      {/* Topbar */}
+      {/* ── Topbar: auth-aware ── */}
       <header className="marketing-topbar">
         <Logo navigate={navigate} />
-        <nav>
+        <nav style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {user ? (
             <>
-              <span style={{ fontSize: "0.88rem", color: "#665f55" }}>
+              <span style={{ fontSize: "0.85rem", color: "#665f55", fontWeight: 600 }}>
                 {user.role === "student" ? "🎓" : "🏢"} {user.name}
               </span>
-              <button className="primary-button small" onClick={() => navigate(user.role === "business" ? "/business/dashboard" : "/student/dashboard")}>
+              <button
+                className="secondary-button"
+                style={{ padding: "8px 16px" }}
+                onClick={() => navigate(user.role === "business" ? "/business/dashboard" : "/student/dashboard")}
+              >
                 Dashboard
               </button>
             </>
@@ -715,13 +737,13 @@ function Home({ navigate, user }) {
       <main>
         <HeroContent />
 
-        {/* Role-specific quick actions for logged-in users */}
+        {/* ── Quick actions for logged-in users ── */}
         {user?.role === "student" && (
           <section className="role-quick-actions">
             <div className="quick-action-card" onClick={() => navigate("/student/jobs")}>
               <span className="qa-icon">🔍</span>
               <strong>Browse Jobs</strong>
-              <small>Find online & offline opportunities</small>
+              <small>Online & offline opportunities</small>
             </div>
             <div className="quick-action-card" onClick={() => navigate("/student/applications")}>
               <span className="qa-icon">📋</span>
@@ -766,13 +788,23 @@ function Home({ navigate, user }) {
           </section>
         )}
 
-        {/* Category Grid */}
+        {/* ── Category grid ── */}
         <section className="category-section">
           <h2>Browse by Field</h2>
-          <p>Click any category to hire talent, find work, or book a local service.</p>
+          <p>
+            {user?.role === "student"
+              ? "Click any category to find jobs in that field."
+              : user?.role === "business"
+              ? "Click any category to post a job or find workers."
+              : "Click any category to hire talent, find work, or book a local service."}
+          </p>
           <div className="category-grid">
             {CATEGORIES.map((cat) => (
-              <button key={cat.id} className={`category-card${cat.isLocal ? " local" : ""}`} onClick={() => handleCategoryClick(cat)}>
+              <button
+                key={cat.id}
+                className={`category-card${cat.isLocal ? " local" : ""}`}
+                onClick={() => handleCategoryClick(cat)}
+              >
                 <span className="cat-icon">{cat.icon}</span>
                 <span className="cat-label">{cat.label}</span>
                 <span className="cat-count">{cat.count}</span>
@@ -781,7 +813,7 @@ function Home({ navigate, user }) {
           </div>
         </section>
 
-        {/* How it works */}
+        {/* ── How it works ── */}
         <section>
           <SectionTitle title="How it works" />
           <div className="how-strip">
@@ -803,7 +835,7 @@ function Home({ navigate, user }) {
           </div>
         </section>
 
-        {/* Metrics */}
+        {/* ── Metrics ── */}
         <section className="metrics-strip">
           <MetricCard value="2,500+" label="Active Students" />
           <MetricCard value="450+"   label="Businesses" />
@@ -811,13 +843,13 @@ function Home({ navigate, user }) {
           <MetricCard value="800+"   label="Local Workers" />
         </section>
 
-        {/* CTA — only for guests */}
+        {/* ── CTA — guests only ── */}
         {!user && (
           <section className="cta-panel">
             <h2>Ready to get started?</h2>
             <p>Join students, businesses, and local workers already using LocalHire.</p>
             <div className="button-row center">
-              <button className="secondary-button inverted"    onClick={() => navigate("/choose-role")}>I&apos;m a Student</button>
+              <button className="secondary-button inverted"     onClick={() => navigate("/choose-role")}>I&apos;m a Student</button>
               <button className="primary-button inverted-light" onClick={() => navigate("/choose-role")}>I&apos;m a Business</button>
               <button className="cta-local" style={{ padding: "12px 22px" }} onClick={() => navigate("/local-services")}>Book Local Service</button>
             </div>
@@ -838,13 +870,13 @@ function Home({ navigate, user }) {
         </div>
       </footer>
 
-      {/* Intent Modal */}
-      {activeCategory && (
+      {/* Intent modal — guests only */}
+      {activeCategory && !user && (
         <IntentModal
           category={activeCategory}
           onClose={() => setActiveCategory(null)}
-          onHire={() => { setActiveCategory(null); navigate(user?.role === "business" ? "/business/post-job" : "/choose-role"); }}
-          onWork={() => { setActiveCategory(null); navigate(user?.role === "student" ? "/student/jobs" : "/choose-role"); }}
+          onHire={() => { setActiveCategory(null); navigate("/choose-role"); }}
+          onWork={() => { setActiveCategory(null); navigate("/choose-role"); }}
         />
       )}
     </div>
@@ -855,7 +887,6 @@ function Home({ navigate, user }) {
 function LocalServicesPage({ navigate, jobs, user, onApply, appliedIds, busy }) {
   const [search, setSearch] = useState("");
   const [selectedCat, setSelectedCat] = useState("all");
-  const [showOtherOptions, setShowOtherOptions] = useState(false);
 
   // Offline jobs from the shared jobs array
   const offlineJobs = useMemo(() => {
@@ -868,12 +899,7 @@ function LocalServicesPage({ navigate, jobs, user, onApply, appliedIds, busy }) 
     return list;
   }, [jobs, search, selectedCat]);
 
-  const categories = useMemo(() => {
-    const cats = [...new Set(jobs.filter((j) => j.isOffline || j.mode === "offline" || j.mode === "both").map((j) => j.category).filter(Boolean))];
-    return cats;
-  }, [jobs]);
-
-  // Static service tiles for quick navigation (kept as entry points)
+  // Static service tiles for quick navigation
   const staticServices = [
     { id: "maid", icon: "🧹", label: "Maid" }, { id: "cook", icon: "👨‍🍳", label: "Cook" },
     { id: "electrician", icon: "⚡", label: "Electrician" }, { id: "plumber", icon: "🔩", label: "Plumber" },
@@ -883,37 +909,43 @@ function LocalServicesPage({ navigate, jobs, user, onApply, appliedIds, busy }) 
     { id: "lawyer", icon: "⚖️", label: "Lawyer" }, { id: "other", icon: "📦", label: "Other" },
   ];
 
+  const isBusiness = user?.role === "business";
+
   return (
     <div className="local-services-page">
+      {/* Auth-aware header */}
       <header className="marketing-topbar">
         <Logo navigate={navigate} />
-        <nav>
-          <div style={{ position: "relative" }}>
-            <button className="secondary-button" onClick={() => setShowOtherOptions((o) => !o)} style={{ marginRight: 10 }}>
-              Other Options ▾
-            </button>
-            {showOtherOptions && (
-              <div className="other-options-dropdown" style={{ right: 10 }}>
-                <p className="other-options-title">🌐 Online Work & Hiring</p>
-                <button className="other-options-item" onClick={() => { setShowOtherOptions(false); navigate("/student/jobs"); }}>📋 Browse All Jobs (Online + Offline)</button>
-                <button className="other-options-item" onClick={() => { setShowOtherOptions(false); navigate("/choose-role"); }}>🎓 Find Online Work</button>
-                <button className="other-options-item" onClick={() => { setShowOtherOptions(false); navigate("/choose-role"); }}>🏢 Hire Online Talent</button>
-                <button className="other-options-item" onClick={() => { setShowOtherOptions(false); navigate("/business/post-job"); }}>📝 Post a Job</button>
-              </div>
-            )}
-          </div>
-          <button className="ghost-button" onClick={() => navigate("/login")}>Log In</button>
-          <button className="primary-button small" onClick={() => navigate("/choose-role")}>Get Started</button>
+        <nav style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {user ? (
+            <>
+              <span style={{ fontSize: "0.85rem", color: "#665f55", fontWeight: 600 }}>
+                {user.role === "student" ? "🎓" : "🏢"} {user.name}
+              </span>
+              <button
+                className="secondary-button"
+                style={{ padding: "8px 16px" }}
+                onClick={() => navigate(user.role === "business" ? "/business/dashboard" : "/student/dashboard")}
+              >
+                Dashboard
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="ghost-button" onClick={() => navigate("/login")}>Log In</button>
+              <button className="primary-button small" onClick={() => navigate("/choose-role")}>Get Started</button>
+            </>
+          )}
         </nav>
       </header>
 
       <button className="local-back" onClick={() => navigate("/")}>← Back to Home</button>
       <span className="eyebrow green">📍 Nearby & Available</span>
       <h1 style={{ fontSize: "clamp(1.8rem, 4vw, 2.6rem)", margin: "10px 0 4px" }}>
-        {user?.role === "business" ? "Find Local Workers" : "Local Services & Offline Jobs"}
+        {isBusiness ? "Find Local Workers" : "Local Services & Offline Jobs"}
       </h1>
       <p style={{ color: "#665f55", marginBottom: 20 }}>
-        {user?.role === "business"
+        {isBusiness
           ? "Browse workers available for on-site and offline roles posted by your business."
           : "Browse real job listings posted by local businesses — apply directly or book a service."}
       </p>
@@ -925,7 +957,7 @@ function LocalServicesPage({ navigate, jobs, user, onApply, appliedIds, busy }) 
           style={{ flex: 1, borderRadius: 14 }}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search offline jobs, e.g. 'cook', 'developer', 'lawyer'..."
+          placeholder={isBusiness ? "Search workers by category, skill..." : "Search offline jobs, e.g. 'cook', 'developer'..."}
         />
         <select value={selectedCat} onChange={(e) => setSelectedCat(e.target.value)} style={{ minHeight: 46, borderRadius: 14, padding: "0 14px", border: "1px solid rgba(17,17,17,.12)", background: "#fff" }}>
           <option value="all">All Categories</option>
@@ -954,9 +986,9 @@ function LocalServicesPage({ navigate, jobs, user, onApply, appliedIds, busy }) 
       {/* Live job listings */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
         <h3 style={{ margin: 0 }}>
-          {offlineJobs.length} {user?.role === "business" ? "worker posting" : "offline job"}{offlineJobs.length !== 1 ? "s" : ""} found
+          {offlineJobs.length} {isBusiness ? "worker posting" : "offline job"}{offlineJobs.length !== 1 ? "s" : ""} found
         </h3>
-        <button className="secondary-button" style={{ fontSize: "0.85rem", padding: "8px 14px" }} onClick={() => navigate("/student/jobs")}>
+        <button className="secondary-button" style={{ fontSize: "0.85rem", padding: "8px 14px" }} onClick={() => navigate(user?.role === "student" ? "/student/jobs" : "/student/jobs")}>
           View All Jobs →
         </button>
       </div>
@@ -964,19 +996,16 @@ function LocalServicesPage({ navigate, jobs, user, onApply, appliedIds, busy }) 
       {offlineJobs.length === 0 ? (
         <div className="panel-card" style={{ padding: 32, textAlign: "center" }}>
           <p style={{ fontSize: "1.5rem", margin: "0 0 8px" }}>📭</p>
-          <h3>{user?.role === "business" ? "No workers available yet" : "No offline jobs posted yet"}</h3>
+          <h3>{isBusiness ? "No workers available yet" : "No offline jobs posted yet"}</h3>
           <p style={{ color: "#665f55" }}>
-            {user?.role === "business"
-              ? "Post an offline job to find local workers near you."
+            {isBusiness
+              ? "Post an offline job to attract local workers near you."
               : "Be the first to apply, or browse online opportunities."}
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 16 }}>
-            <button className="primary-button small" onClick={() => navigate(user?.role === "business" ? "/business/post-job" : "/student/jobs")}>
-              {user?.role === "business" ? "Post a Job" : "Browse Online Jobs"}
+            <button className="primary-button small" onClick={() => navigate(isBusiness ? "/business/post-job" : "/student/jobs")}>
+              {isBusiness ? "Post a Job" : "Browse Online Jobs"}
             </button>
-            {user?.role !== "business" && (
-              <button className="secondary-button" onClick={() => navigate("/student/jobs")}>Browse Online Jobs</button>
-            )}
           </div>
         </div>
       ) : (
