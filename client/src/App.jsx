@@ -701,7 +701,6 @@ function Home({ navigate, user, jobs }) {
 
     if (user.role === "student") {
       // Navigate to jobs filtered by this category's skills
-      // If student has matching skills, filter by their skills; else show all in category
       const studentSkills = (user.skills || []).join(",");
       const catSkills = cat.skills.join(",");
       const query = studentSkills
@@ -712,7 +711,8 @@ function Home({ navigate, user, jobs }) {
     }
 
     if (user.role === "business") {
-      navigate("/business/post-job");
+      // Business → go to applications filtered by category, NOT post-job
+      navigate(`/business/applications?cat=${cat.id}&catskills=${cat.skills.join(",")}`);
       return;
     }
   }
@@ -1399,6 +1399,14 @@ function DashboardShell({ role, user, navigate, logout, currentPath, theme, togg
     <div className="dashboard-layout">
       <aside className="sidebar">
         <Logo navigate={navigate} />
+        {/* Profile at TOP */}
+        <div className="sidebar-profile">
+          <span className="avatar-circle">{initials(user?.name)}</span>
+          <div>
+            <strong>{user?.name}</strong>
+            <small>{role === "business" ? user?.businessType || "Business" : user?.college || "Student"}</small>
+          </div>
+        </div>
         <div className="sidebar-nav">
           {items.map(([label, path]) => (
             <button key={label} className={currentPath === path ? "sidebar-link active" : "sidebar-link"} onClick={() => navigate(path)}>
@@ -1406,17 +1414,12 @@ function DashboardShell({ role, user, navigate, logout, currentPath, theme, togg
             </button>
           ))}
         </div>
-        <div className="sidebar-profile">
-          <span className="avatar-circle">{initials(user?.name)}</span>
-          <div>
-            <strong style={{ fontSize: "0.88rem" }}>{user?.name}</strong>
-            <small>{role === "business" ? user?.businessType || "Business" : user?.college || "Student"}</small>
-          </div>
+        <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+          <button className="theme-toggle" onClick={toggleTheme}>
+            {theme === "dark" ? "☀️ Light Mode" : "🌙 Dark Mode"}
+          </button>
+          <button className="danger-link" onClick={logout}>Logout</button>
         </div>
-        <button className="theme-toggle" onClick={toggleTheme}>
-          {theme === "dark" ? "☀️ Light Mode" : "🌙 Dark Mode"}
-        </button>
-        <button className="danger-link" onClick={logout}>Logout</button>
       </aside>
       <section className="dashboard-content">{children}</section>
     </div>
@@ -1491,9 +1494,19 @@ function BusinessArea({ route, user, jobs, applications, inbox, activeConversati
   const inProgressJobs = ownJobs.filter((job) => job.status === "in_progress").length;
   const hiredCount = applications.filter((app) => ["approved", "in_progress", "completed"].includes(app.status)).length;
 
-  if (route.section === "post-job") return <PostJobForm onCreateJob={onCreateJob} busy={busy} />;
+  if (route.section === "post-job") {
+    // Pre-fill category from URL if coming from category click
+    const urlCat = new URLSearchParams(window.location.search).get("cat") || "";
+    return <PostJobForm onCreateJob={onCreateJob} busy={busy} prefilledCategory={urlCat} />;
+  }
   if (route.section === "jobs") return <BusinessJobs jobs={ownJobs} onNavigate={onNavigate} onDeleteJob={onDeleteJob} busy={busy} />;
-  if (route.section === "applications") return <BusinessApplications applications={applications} onUpdateStatus={onUpdateStatus} onOpenConversation={onOpenConversation} busy={busy} />;
+  if (route.section === "applications") {
+    // Read category filter from URL if coming from category click on homepage
+    const urlParams = new URLSearchParams(window.location.search);
+    const catId = urlParams.get("cat") || "";
+    const catSkills = urlParams.get("catskills") ? urlParams.get("catskills").split(",").filter(Boolean) : [];
+    return <BusinessApplications applications={applications} onUpdateStatus={onUpdateStatus} onOpenConversation={onOpenConversation} onNavigate={onNavigate} busy={busy} catId={catId} catSkills={catSkills} />;
+  }
   if (route.section === "messages") return <MessagesScreen role="business" inbox={inbox} activeConversation={activeConversation} onOpenConversation={onOpenConversation} onSendMessage={onSendMessage} />;
   if (route.section === "profile") return <ProfileEditor user={user} onSave={onSaveProfile} />;
   if (route.section === "rankings") return <RankingsScreen rankings={rankings} onNavigate={onNavigate} onUpdateStatus={onUpdateStatus} busy={busy} />;
@@ -1518,7 +1531,7 @@ function BusinessArea({ route, user, jobs, applications, inbox, activeConversati
         <PostJobForm onCreateJob={onCreateJob} busy={busy} compact />
       </section>
       <SectionTitle title="Latest Applicants" />
-      <BusinessApplications applications={applications.slice(0, 5)} onUpdateStatus={onUpdateStatus} onOpenConversation={onOpenConversation} busy={busy} compact />
+      <BusinessApplications applications={applications.slice(0, 5)} onUpdateStatus={onUpdateStatus} onOpenConversation={onOpenConversation} onNavigate={onNavigate} busy={busy} compact />
     </>
   );
 }
@@ -1787,7 +1800,7 @@ function BusinessJobs({ jobs, onNavigate, onDeleteJob, busy, compact = false }) 
   );
 }
 
-function BusinessApplications({ applications, onUpdateStatus, onOpenConversation, busy, compact = false }) {
+function BusinessApplications({ applications, onUpdateStatus, onOpenConversation, onNavigate, busy, compact = false, catId = "", catSkills = [] }) {
   const [jobTypeFilter, setJobTypeFilter] = useState("all");
   const [jobFilter, setJobFilter] = useState("all");
 
@@ -1799,6 +1812,15 @@ function BusinessApplications({ applications, onUpdateStatus, onOpenConversation
 
   const filtered = useMemo(() => {
     let list = applications;
+
+    // Category filter from homepage click
+    if (catSkills.length) {
+      list = list.filter((a) => {
+        const jobSkills = (a.jobId?.skills || []).map(s => s.toLowerCase());
+        return catSkills.some((ks) => jobSkills.some((js) => js.includes(ks) || ks.includes(js)));
+      });
+    }
+
     if (jobTypeFilter !== "all") {
       list = list.filter((a) => {
         const mode = a.jobId?.mode || (a.jobId?.isOffline ? "offline" : "online");
@@ -1811,12 +1833,35 @@ function BusinessApplications({ applications, onUpdateStatus, onOpenConversation
       list = list.filter((a) => a.jobId?.title === jobFilter);
     }
     return list;
-  }, [applications, jobTypeFilter, jobFilter]);
+  }, [applications, jobTypeFilter, jobFilter, catSkills]);
 
-  if (!applications.length) return <EmptyState title="No applicants yet" text="Applications will show ranking, scores, and chat access once students apply." />;
+  const catLabel = catId ? (CATEGORIES.find(c => c.id === catId)?.label || catId) : "";
+
+  if (!applications.length) return (
+    <div className="panel-card" style={{ padding: 32, textAlign: "center" }}>
+      <p style={{ fontSize: "1.5rem", margin: "0 0 8px" }}>📭</p>
+      <h3>No applicants yet</h3>
+      <p style={{ color: "#665f55" }}>Applications will appear here once students apply to your jobs.</p>
+      {onNavigate && (
+        <button className="primary-button small" style={{ marginTop: 14 }} onClick={() => onNavigate(catId ? `/business/post-job?cat=${catId}` : "/business/post-job")}>
+          ➕ Post a Job{catLabel ? ` in ${catLabel}` : ""}
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <>
+      {/* Category context banner */}
+      {catLabel && (
+        <div style={{ background: "#e8f0ff", borderRadius: 12, padding: "10px 16px", marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontWeight: 700, color: "#1f58a8" }}>📂 Showing applicants for: {catLabel}</span>
+          <button style={{ background: "transparent", border: 0, color: "#1f58a8", cursor: "pointer", fontSize: "0.85rem" }} onClick={() => { window.history.replaceState({}, "", "/business/applications"); window.location.reload(); }}>
+            Clear filter ✕
+          </button>
+        </div>
+      )}
+
       {/* Filters */}
       {!compact && (
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
@@ -1838,77 +1883,82 @@ function BusinessApplications({ applications, onUpdateStatus, onOpenConversation
         </div>
       )}
 
-      <div className="list-stack">
-        {filtered.map((application) => {
-          const isPending = application.status === "pending" || application.status === "test_pending";
-          const isApproved = application.status === "approved";
-          const isInProgress = application.status === "in_progress";
-          const isDone = application.status === "completed" || application.status === "rejected";
-          const jobMode = application.jobId?.mode || (application.jobId?.isOffline ? "offline" : "online");
-          const modeBadge = jobMode === "offline" ? "📍 Offline" : jobMode === "both" ? "🔀 Both" : "🌐 Online";
-          const modeColor = jobMode === "offline" ? "#fff3cd" : jobMode === "both" ? "#e8f0ff" : "#e4f0dc";
-          const modeTextColor = jobMode === "offline" ? "#7a5f02" : jobMode === "both" ? "#1f58a8" : "#2d5a1e";
+      {filtered.length === 0 ? (
+        <div className="panel-card" style={{ padding: 28, textAlign: "center" }}>
+          <h3>No applications in {catLabel || "this category"} yet</h3>
+          <p style={{ color: "#665f55" }}>Be the first to attract talent here.</p>
+          {onNavigate && (
+            <button className="primary-button small" style={{ marginTop: 12 }} onClick={() => onNavigate(catId ? `/business/post-job?cat=${catId}` : "/business/post-job")}>
+              ➕ Post Job in this Category
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="list-stack">
+          {filtered.map((application) => {
+            const isPending = application.status === "pending" || application.status === "test_pending";
+            const isApproved = application.status === "approved";
+            const isInProgress = application.status === "in_progress";
+            const isDone = application.status === "completed" || application.status === "rejected";
+            const jobMode = application.jobId?.mode || (application.jobId?.isOffline ? "offline" : "online");
+            const modeBadge = jobMode === "offline" ? "📍 Offline" : jobMode === "both" ? "🔀 Both" : "🌐 Online";
+            const modeColor = jobMode === "offline" ? "#fff3cd" : jobMode === "both" ? "#e8f0ff" : "#e4f0dc";
+            const modeTextColor = jobMode === "offline" ? "#7a5f02" : jobMode === "both" ? "#1f58a8" : "#2d5a1e";
 
-          return (
-            <article key={application._id} className="panel-card application-card">
-              <div className="card-row space-between">
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <h3 style={{ margin: 0 }}>{application.studentId?.name || "Student"}</h3>
-                    <span style={{ background: modeColor, color: modeTextColor, borderRadius: 999, padding: "3px 10px", fontSize: "0.75rem", fontWeight: 700 }}>
-                      {modeBadge}
-                    </span>
+            return (
+              <article key={application._id} className="panel-card application-card">
+                <div className="card-row space-between">
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <h3 style={{ margin: 0 }}>{application.studentId?.name || "Student"}</h3>
+                      <span style={{ background: modeColor, color: modeTextColor, borderRadius: 999, padding: "3px 10px", fontSize: "0.75rem", fontWeight: 700 }}>
+                        {modeBadge}
+                      </span>
+                    </div>
+                    <p style={{ margin: "3px 0 0", color: "#665f55", fontSize: "0.85rem" }}>
+                      {application.jobId?.title || "Job"} · {application.jobId?.location || "Local"}
+                    </p>
                   </div>
-                  <p style={{ margin: "3px 0 0", color: "#665f55", fontSize: "0.85rem" }}>
-                    {application.jobId?.title || "Job"} · {application.jobId?.location || "Local"}
-                  </p>
+                  <span className={`status-pill ${application.status}`}>{application.status.replace("_", " ")}</span>
                 </div>
-                <span className={`status-pill ${application.status}`}>{application.status.replace("_", " ")}</span>
-              </div>
-
-              {/* Student skills */}
-              {(application.studentId?.skills || []).length > 0 && (
-                <div className="chip-wrap" style={{ marginTop: 4 }}>
-                  {(application.studentId.skills).map((skill) => (
-                    <span key={skill} className={`chip ${(application.matchedSkills || []).includes(skill.toLowerCase()) ? "accent" : "neutral"}`} style={{ fontSize: "0.75rem" }}>
-                      {skill}
-                    </span>
-                  ))}
+                {(application.studentId?.skills || []).length > 0 && (
+                  <div className="chip-wrap" style={{ marginTop: 4 }}>
+                    {application.studentId.skills.map((skill) => (
+                      <span key={skill} className={`chip ${(application.matchedSkills || []).includes(skill.toLowerCase()) ? "accent" : "neutral"}`} style={{ fontSize: "0.75rem" }}>
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="stats-inline wrap">
+                  <span>Test Score: {application.testScore || 0}</span>
+                  <span>Ranking: {application.rankingScore || 0}</span>
+                  <span>Time: {application.timeTaken || 0} min</span>
+                  {application.skillMatchScore > 0 && <span>Skill Match: {application.skillMatchScore}%</span>}
                 </div>
-              )}
-
-              <div className="stats-inline wrap">
-                <span>Test Score: {application.testScore || 0}</span>
-                <span>Ranking: {application.rankingScore || 0}</span>
-                <span>Time: {application.timeTaken || 0} min</span>
-                {application.skillMatchScore > 0 && <span>Skill Match: {application.skillMatchScore}%</span>}
-              </div>
-
-              {!compact && !isDone && (
-                <div className="button-row wrap">
-                  <button className="secondary-button" onClick={() => onOpenConversation(application._id)}>Message</button>
-                  {isPending && (
-                    <>
-                      <button className="accept-btn" disabled={busy} onClick={() => onUpdateStatus(application._id, "approved")}>✓ Hire</button>
-                      <button className="reject-btn" disabled={busy} onClick={() => onUpdateStatus(application._id, "rejected")}>✕ Reject</button>
-                    </>
-                  )}
-                  {isApproved && <button className="secondary-button" disabled={busy} onClick={() => onUpdateStatus(application._id, "in_progress")}>▶ Start Work</button>}
-                  {isInProgress && <button className="primary-button small" disabled={busy} onClick={() => onUpdateStatus(application._id, "completed")}>✓ Mark Complete</button>}
-                </div>
-              )}
-              {!compact && isDone && (
-                <div className="button-row wrap">
-                  <button className="secondary-button" onClick={() => onOpenConversation(application._id)}>Message</button>
-                </div>
-              )}
-            </article>
-          );
-        })}
-      </div>
+                {!compact && !isDone && (
+                  <div className="button-row wrap">
+                    <button className="secondary-button" onClick={() => onOpenConversation(application._id)}>Message</button>
+                    {isPending && <button className="accept-btn" disabled={busy} onClick={() => onUpdateStatus(application._id, "approved")}>✓ Hire</button>}
+                    {isPending && <button className="reject-btn" disabled={busy} onClick={() => onUpdateStatus(application._id, "rejected")}>✕ Reject</button>}
+                    {isApproved && <button className="secondary-button" disabled={busy} onClick={() => onUpdateStatus(application._id, "in_progress")}>▶ Start Work</button>}
+                    {isInProgress && <button className="primary-button small" disabled={busy} onClick={() => onUpdateStatus(application._id, "completed")}>✓ Complete</button>}
+                  </div>
+                )}
+                {!compact && isDone && (
+                  <div className="button-row wrap">
+                    <button className="secondary-button" onClick={() => onOpenConversation(application._id)}>Message</button>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
     </>
   );
 }
+
 function RankingsScreen({ rankings, onNavigate, onUpdateStatus, busy }) {
   if (!rankings) return <EmptyState title="Loading rankings" text="Fetching ranked candidates for this job." />;
 
@@ -2214,10 +2264,10 @@ function ProfileEditor({ user, onSave }) {
   );
 }
 
-function PostJobForm({ onCreateJob, busy, compact = false }) {
+function PostJobForm({ onCreateJob, busy, compact = false, prefilledCategory = "" }) {
   const [form, setForm] = useState({
     title: "", description: "", budget: "", location: "", skills: "",
-    teamBased: false, mode: "online", category: "",
+    teamBased: false, mode: "online", category: prefilledCategory,
     enableTest: false, testTopic: "", testDifficulty: "medium", testQuestions: "5"
   });
   const [error, setError] = useState("");
