@@ -7,6 +7,8 @@ const {
   getJobs,
   getRecommendedJobs,
   applyJob,
+  applyCategoryDirect,
+  getCategoryApplicants,
   getApplications,
   getStudentApplications,
   updateApplicationStatus,
@@ -23,6 +25,9 @@ const {
 router.post("/", verifyToken, createJob);
 router.get("/", getJobs);
 router.get("/recommended", verifyToken, getRecommendedJobs);
+router.post("/apply", verifyToken, applyJob);
+router.post("/apply-category", verifyToken, applyCategoryDirect);
+router.get("/category-applicants/:category", verifyToken, getCategoryApplicants);
 router.post("/apply", verifyToken, applyJob);
 router.get("/applications", verifyToken, getApplications);
 router.get("/my-applications", verifyToken, getStudentApplications);

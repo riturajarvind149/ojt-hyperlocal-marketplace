@@ -35,6 +35,14 @@ const applicationSchema = new mongoose.Schema({
     correctAnswers: { type: Number, default: 0 },
     timeTakenMinutes: { type: Number, default: 0 },
     answers: [{ questionIndex: Number, selected: String, correct: Boolean }]
+  },
+
+  // Category-direct application (no job required)
+  categoryMeta: {
+    category:       { type: String, default: "" },
+    availability:   { type: String, default: "flexible" },
+    expectedSalary: { type: String, default: "" },
+    note:           { type: String, default: "" }
   }
 
 }, { timestamps: true });

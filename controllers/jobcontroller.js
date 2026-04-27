@@ -81,6 +81,102 @@ function formatApplication(application) {
   };
 }
 
+// ─── Category-based application (no job required) ────────────────
+exports.applyCategoryDirect = async (req, res) => {
+  try {
+    if (req.user.role !== "student") {
+      return res.status(403).json({ message: "Only students can apply" });
+    }
+
+    const { category, availability, expectedSalary, note, skills } = req.body;
+    if (!category) return res.status(400).json({ message: "category is required" });
+
+    const student = await Student.findById(req.user.id);
+    if (!student) return res.status(404).json({ message: "Student not found" });
+
+    // Check if already applied to this category without a job
+    const existing = await Application.findOne({
+      studentId: req.user.id,
+      jobId: null,
+      "categoryMeta.category": category
+    });
+    if (existing) return res.status(400).json({ message: "You already applied in this category" });
+
+    const application = new Application({
+      studentId: req.user.id,
+      jobId: null,
+      status: "pending",
+      matchedSkills: skills || student.skills || [],
+      notes: note || `Applied as ${category} worker. Availability: ${availability || "flexible"}. Expected: ${expectedSalary || "negotiable"}`,
+      conversationId: "",
+      categoryMeta: {
+        category: category.toLowerCase(),
+        availability: availability || "flexible",
+        expectedSalary: expectedSalary || "",
+        note: note || ""
+      }
+    });
+
+    await application.save();
+
+    res.status(201).json({
+      message: `Application submitted for ${category}`,
+      application
+    });
+  } catch (error) {
+    console.error("applyCategoryDirect error:", error.message);
+    res.status(500).json({ message: "Server error: " + error.message });
+  }
+};
+
+// ─── Get category applicants (business sees workers who applied) ──
+exports.getCategoryApplicants = async (req, res) => {
+  try {
+    if (req.user.role !== "business") {
+      return res.status(403).json({ message: "Only businesses can view category applicants" });
+    }
+
+    const { category } = req.params;
+    if (!category) return res.status(400).json({ message: "category is required" });
+
+    // Find applications with no job (direct category applications)
+    const applications = await Application.find({
+      jobId: null,
+      "categoryMeta.category": category.toLowerCase()
+    })
+      .populate("studentId", "name email skills phone location bio jobTypePreference")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      category,
+      count: applications.length,
+      applicants: applications.map((app) => ({
+        _id: app._id,
+        status: app.status,
+        notes: app.notes,
+        matchedSkills: app.matchedSkills || [],
+        availability: app.categoryMeta?.availability || "flexible",
+        expectedSalary: app.categoryMeta?.expectedSalary || "",
+        note: app.categoryMeta?.note || "",
+        createdAt: app.createdAt,
+        student: app.studentId ? {
+          _id: app.studentId._id,
+          name: app.studentId.name,
+          email: app.studentId.email,
+          skills: app.studentId.skills || [],
+          phone: app.studentId.phone || "",
+          location: app.studentId.location || "",
+          bio: app.studentId.bio || "",
+          jobTypePreference: app.studentId.jobTypePreference || "both"
+        } : null
+      }))
+    });
+  } catch (error) {
+    console.error("getCategoryApplicants error:", error.message);
+    res.status(500).json({ message: "Server error: " + error.message });
+  }
+};
+
 exports.getRecommendedJobs = async (req, res) => {
   try {
     if (req.user.role !== "student") {

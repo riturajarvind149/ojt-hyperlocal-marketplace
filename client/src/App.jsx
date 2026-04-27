@@ -1001,7 +1001,7 @@ function LocalServicesPage({ navigate, jobs, user, onApply, appliedIds, busy }) 
         </select>
       </div>
 
-      {/* Quick category tiles */}
+      {/* Quick category tiles — always clickable, navigate to category page */}
       <div className="local-grid" style={{ marginBottom: 28 }}>
         {staticServices.map((svc) => {
           const count = jobs.filter((j) => (j.isOffline || j.mode === "offline" || j.mode === "both") && (j.category || "").toLowerCase() === svc.id && j.status === "open").length;
@@ -1009,11 +1009,13 @@ function LocalServicesPage({ navigate, jobs, user, onApply, appliedIds, busy }) 
             <button
               key={svc.id}
               className={`local-card${selectedCat === svc.id ? " active-cat" : ""}`}
-              onClick={() => setSelectedCat(selectedCat === svc.id ? "all" : svc.id)}
+              onClick={() => navigate(`/local-services/${svc.id}`)}
             >
               <span className="local-icon">{svc.icon}</span>
               <span className="local-label">{svc.label}</span>
-              <span className="local-desc">{count > 0 ? `${count} job${count > 1 ? "s" : ""}` : "No jobs yet"}</span>
+              <span className="local-desc">
+                {count > 0 ? `${count} job${count > 1 ? "s" : ""}` : isBusiness ? "Find workers" : "Apply now"}
+              </span>
             </button>
           );
         })}
@@ -1132,11 +1134,19 @@ function ApplyModal({ job, onClose, onApply, navigate }) {
   );
 }
 
-// ─── LOCAL WORKERS PAGE — shows real DB jobs for a specific category ──
+// ─── LOCAL WORKERS PAGE — two-way marketplace per category ────────
 function LocalWorkersPage({ category, navigate }) {
   const [jobs, setJobs] = useState([]);
+  const [applicants, setApplicants] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [applyTarget, setApplyTarget] = useState(null); // job to apply to
+  const [applyModal, setApplyModal] = useState(false);
+  const [applyForm, setApplyForm] = useState({ availability: "full-time", expectedSalary: "", note: "" });
+  const [applyBusy, setApplyBusy] = useState(false);
+  const [applyDone, setApplyDone] = useState(false);
+
+  const token = localStorage.getItem("token");
+  const userRaw = token ? (() => { try { return JSON.parse(atob(token.split(".")[1])); } catch { return null; } })() : null;
+  const role = userRaw?.role || null;
 
   const svcInfo = {
     maid: { icon: "🧹", label: "Maid" }, cook: { icon: "👨‍🍳", label: "Cook" },
@@ -1150,89 +1160,240 @@ function LocalWorkersPage({ category, navigate }) {
   const svc = svcInfo[category] || { icon: "📍", label: category };
 
   useEffect(() => {
-    async function fetchJobs() {
+    async function fetchData() {
+      setLoading(true);
       try {
-        const res = await fetch(`${API_URL}/jobs?category=${encodeURIComponent(category)}`);
-        const data = await res.json();
-        setJobs(Array.isArray(data) ? data.filter(j => j.status === "open") : []);
-      } catch {
-        setJobs([]);
-      } finally {
-        setLoading(false);
-      }
+        const jobRes = await fetch(`${API_URL}/jobs?category=${encodeURIComponent(category)}`);
+        const jobData = await jobRes.json();
+        setJobs(Array.isArray(jobData) ? jobData.filter(j => j.status === "open") : []);
+        if (role === "business" && token) {
+          const appRes = await fetch(`${API_URL}/jobs/category-applicants/${encodeURIComponent(category)}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (appRes.ok) {
+            const appData = await appRes.json();
+            setApplicants(appData.applicants || []);
+          }
+        }
+      } catch { setJobs([]); }
+      finally { setLoading(false); }
     }
-    fetchJobs();
-  }, [category]);
+    fetchData();
+  }, [category, role]);
+
+  async function submitCategoryApplication() {
+    if (!token) { navigate("/login"); return; }
+    setApplyBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/jobs/apply-category`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ category, ...applyForm })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+      setApplyDone(true);
+      setApplyModal(false);
+    } catch (e) { alert(e.message); }
+    finally { setApplyBusy(false); }
+  }
 
   return (
     <div className="local-services-page">
       <header className="marketing-topbar">
         <Logo navigate={navigate} />
         <nav style={{ display: "flex", gap: 10 }}>
-          <button className="ghost-button" onClick={() => navigate("/login")}>Log In</button>
-          <button className="primary-button small" onClick={() => navigate("/choose-role")}>Get Started</button>
+          {token ? (
+            <button className="secondary-button" style={{ padding: "8px 16px" }}
+              onClick={() => navigate(role === "business" ? "/business/dashboard" : "/student/dashboard")}>
+              Dashboard
+            </button>
+          ) : (
+            <>
+              <button className="ghost-button" onClick={() => navigate("/login")}>Log In</button>
+              <button className="primary-button small" onClick={() => navigate("/choose-role")}>Get Started</button>
+            </>
+          )}
         </nav>
       </header>
+
       <button className="local-back" onClick={() => navigate("/local-services")}>← Back to Local Services</button>
 
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-        <span style={{ fontSize: "2rem" }}>{svc.icon}</span>
+        <span style={{ fontSize: "2.2rem" }}>{svc.icon}</span>
         <div>
-          <h2 style={{ margin: 0 }}>{svc.label} Jobs</h2>
-          <p style={{ margin: 0, color: "#665f55", fontSize: "0.9rem" }}>
-            {loading ? "Loading..." : `${jobs.length} job${jobs.length !== 1 ? "s" : ""} available`}
+          <h2 style={{ margin: 0 }}>{svc.label}</h2>
+          <p style={{ margin: 0, fontSize: "0.9rem" }}>
+            {loading ? "Loading..." : role === "business"
+              ? `${jobs.length} job${jobs.length !== 1 ? "s" : ""} · ${applicants.length} worker${applicants.length !== 1 ? "s" : ""} available`
+              : `${jobs.length} job${jobs.length !== 1 ? "s" : ""} available`}
           </p>
         </div>
       </div>
 
-      {loading ? (
-        <EmptyState title="Loading jobs..." text="Fetching available positions." />
-      ) : jobs.length === 0 ? (
-        <div className="panel-card" style={{ padding: 32, textAlign: "center" }}>
-          <p style={{ fontSize: "1.5rem", margin: "0 0 8px" }}>📭</p>
-          <h3>No {svc.label} jobs posted yet</h3>
-          <p style={{ color: "#665f55" }}>No offline jobs available in this category right now.</p>
-          <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 16 }}>
-            <button className="primary-button small" onClick={() => navigate("/local-services")}>← Back to Categories</button>
-            <button className="secondary-button" onClick={() => navigate("/student/jobs")}>Browse All Jobs</button>
-          </div>
-        </div>
-      ) : (
-        <div className="list-stack">
-          {jobs.map((job) => (
-            <article key={job._id} className="panel-card application-card">
-              <div className="card-row space-between">
-                <div>
-                  <h3 style={{ margin: 0 }}>{job.title}</h3>
-                  <p style={{ margin: "3px 0 0", color: "#665f55", fontSize: "0.85rem" }}>
-                    {job.businessId?.name || "Business"} · {job.location || "Local"} · {formatRelative(job.createdAt)}
-                  </p>
+      {loading ? <EmptyState title="Loading..." text="Fetching data." /> : (
+        <>
+          {/* STUDENT VIEW */}
+          {role !== "business" && (
+            <>
+              {applyDone && (
+                <div style={{ background: "#dbf7e3", border: "1px solid #17613a", borderRadius: 14, padding: "14px 18px", marginBottom: 16, color: "#17613a", fontWeight: 600 }}>
+                  ✅ Application submitted! Businesses can now find you.
                 </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ fontWeight: 800 }}>{formatMoney(job.budget)}</div>
-                  <span className="offline-badge">📍 Offline</span>
+              )}
+              {jobs.length > 0 ? (
+                <>
+                  <h3 style={{ marginBottom: 12 }}>Available Jobs</h3>
+                  <div className="list-stack" style={{ marginBottom: 24 }}>
+                    {jobs.map((job) => (
+                      <article key={job._id} className="panel-card application-card">
+                        <div className="card-row space-between">
+                          <div>
+                            <h3 style={{ margin: 0 }}>{job.title}</h3>
+                            <p style={{ margin: "3px 0 0", fontSize: "0.85rem" }}>{job.businessId?.name || "Business"} · {job.location || "Local"} · {formatRelative(job.createdAt)}</p>
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontWeight: 800 }}>{formatMoney(job.budget)}</div>
+                            <span className="offline-badge">📍 Offline</span>
+                          </div>
+                        </div>
+                        <p style={{ fontSize: "0.9rem", margin: "8px 0" }}>{job.description}</p>
+                        <div className="chip-wrap">{(job.skills || []).map((s) => <span key={s} className="chip neutral">{s}</span>)}</div>
+                        <div className="button-row" style={{ marginTop: 8 }}>
+                          <button className="primary-button small" onClick={() => setApplyModal(true)}>Apply Now</button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="panel-card" style={{ padding: 28, textAlign: "center", marginBottom: 20 }}>
+                  <p style={{ fontSize: "1.4rem", margin: "0 0 8px" }}>📭</p>
+                  <h3>No {svc.label} jobs posted yet</h3>
+                  <p>No businesses have posted a {svc.label} job yet — but you can still register your interest!</p>
                 </div>
+              )}
+              {!applyDone && (
+                <div className="panel-card" style={{ padding: 24, textAlign: "center", background: "linear-gradient(135deg, #f0f9ea, #fff)" }}>
+                  <p style={{ fontSize: "1.4rem", margin: "0 0 8px" }}>🙋</p>
+                  <h3 style={{ margin: "0 0 6px" }}>Apply as {svc.label}</h3>
+                  <p style={{ marginBottom: 16 }}>Register your interest. Businesses looking for a {svc.label} will find you directly.</p>
+                  <button className="primary-button" onClick={() => token ? setApplyModal(true) : navigate("/login")}>
+                    Apply as {svc.label}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* BUSINESS VIEW */}
+          {role === "business" && (
+            <>
+              {applicants.length > 0 && (
+                <>
+                  <h3 style={{ marginBottom: 12 }}>👷 Workers Available ({applicants.length})</h3>
+                  <div className="list-stack" style={{ marginBottom: 24 }}>
+                    {applicants.map((app) => (
+                      <article key={app._id} className="panel-card application-card">
+                        <div className="card-row space-between">
+                          <div>
+                            <h3 style={{ margin: 0 }}>{app.student?.name || "Worker"}</h3>
+                            <p style={{ margin: "3px 0 0", fontSize: "0.85rem" }}>{app.student?.location || "Location not set"} · {app.availability}</p>
+                          </div>
+                          <span className="status-pill approved">Available</span>
+                        </div>
+                        <div className="chip-wrap" style={{ marginTop: 6 }}>
+                          {(app.student?.skills || []).map((s) => <span key={s} className="chip neutral">{s}</span>)}
+                        </div>
+                        <div className="stats-inline" style={{ marginTop: 6 }}>
+                          {app.expectedSalary && <span>💰 {app.expectedSalary}</span>}
+                          {app.note && <span>📝 {app.note}</span>}
+                        </div>
+                        <div className="button-row" style={{ marginTop: 8 }}>
+                          <button className="accept-btn" onClick={() => alert(`Contact ${app.student?.name} at ${app.student?.email || "N/A"}`)}>✓ Hire / Contact</button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </>
+              )}
+              {jobs.length > 0 && (
+                <>
+                  <h3 style={{ marginBottom: 12 }}>📋 Jobs in this Category ({jobs.length})</h3>
+                  <div className="list-stack" style={{ marginBottom: 24 }}>
+                    {jobs.map((job) => (
+                      <article key={job._id} className="panel-card application-card">
+                        <div className="card-row space-between">
+                          <h3 style={{ margin: 0 }}>{job.title}</h3>
+                          <span className={`status-pill ${job.status}`}>{job.status}</span>
+                        </div>
+                        <p style={{ fontSize: "0.9rem", margin: "6px 0" }}>{job.description}</p>
+                        <p style={{ fontSize: "0.85rem", margin: 0 }}>{formatMoney(job.budget)} · {job.location || "Local"}</p>
+                      </article>
+                    ))}
+                  </div>
+                </>
+              )}
+              {applicants.length === 0 && jobs.length === 0 && (
+                <div className="panel-card" style={{ padding: 32, textAlign: "center" }}>
+                  <p style={{ fontSize: "1.5rem", margin: "0 0 8px" }}>📭</p>
+                  <h3>No workers or jobs in {svc.label} yet</h3>
+                  <p>Be the first to post a job and attract workers in this category.</p>
+                </div>
+              )}
+              <div style={{ marginTop: 16, textAlign: "center" }}>
+                <button className="primary-button" onClick={() => navigate(`/business/post-job?cat=${category}`)}>
+                  ➕ Post a {svc.label} Job
+                </button>
               </div>
-              <p style={{ color: "#665f55", fontSize: "0.9rem", margin: "8px 0" }}>{job.description}</p>
-              <div className="chip-wrap">
-                {(job.skills || []).map((s) => <span key={s} className="chip neutral">{s}</span>)}
+            </>
+          )}
+
+          {/* GUEST VIEW */}
+          {!role && (
+            <div className="panel-card" style={{ padding: 32, textAlign: "center" }}>
+              <h3>Find {svc.label} work or hire a {svc.label}</h3>
+              <p>Sign in to apply for jobs or post a job in this category.</p>
+              <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 16 }}>
+                <button className="primary-button" onClick={() => navigate("/choose-role")}>Get Started</button>
+                <button className="secondary-button" onClick={() => navigate("/login")}>Log In</button>
               </div>
-              <div className="button-row" style={{ marginTop: 8 }}>
-                <button className="primary-button small" onClick={() => setApplyTarget(job)}>Apply Now</button>
-              </div>
-            </article>
-          ))}
-        </div>
+            </div>
+          )}
+        </>
       )}
 
-      {/* Apply modal */}
-      {applyTarget && (
-        <ApplyModal
-          job={applyTarget}
-          onClose={() => setApplyTarget(null)}
-          onApply={(jobId) => { setApplyTarget(null); navigate("/login"); }}
-          navigate={navigate}
-        />
+      {/* Apply Modal */}
+      {applyModal && (
+        <div className="apply-modal-overlay" onClick={() => setApplyModal(false)}>
+          <div className="apply-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Apply as {svc.label}</h3>
+            <p>Register your interest. Businesses will be able to find and contact you.</p>
+            <div className="field">
+              <span>Availability</span>
+              <select value={applyForm.availability} onChange={(e) => setApplyForm(p => ({ ...p, availability: e.target.value }))}>
+                <option value="full-time">Full-time</option>
+                <option value="part-time">Part-time</option>
+                <option value="flexible">Flexible</option>
+                <option value="weekends">Weekends only</option>
+              </select>
+            </div>
+            <div className="field">
+              <span>Expected Salary / Rate <small style={{ fontWeight: 400 }}>(optional)</small></span>
+              <input value={applyForm.expectedSalary} onChange={(e) => setApplyForm(p => ({ ...p, expectedSalary: e.target.value }))} placeholder="e.g. ₹500/day, ₹15,000/month" />
+            </div>
+            <div className="field">
+              <span>Note <small style={{ fontWeight: 400 }}>(optional)</small></span>
+              <textarea value={applyForm.note} onChange={(e) => setApplyForm(p => ({ ...p, note: e.target.value }))} placeholder="Tell businesses about your experience..." style={{ minHeight: 80 }} />
+            </div>
+            <div className="apply-modal-btns">
+              <button className="secondary-button" onClick={() => setApplyModal(false)}>Cancel</button>
+              <button className="primary-button" disabled={applyBusy} onClick={submitCategoryApplication}>
+                {applyBusy ? "Submitting..." : "Submit Application"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
