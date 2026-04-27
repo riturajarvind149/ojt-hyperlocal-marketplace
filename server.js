@@ -39,7 +39,8 @@ const clientBuild = path.join(__dirname, "client", "dist");
 app.use(express.static(clientBuild));
 
 // All non-API routes → React app (SPA fallback)
-app.get("*", (req, res) => {
+// Express 5 requires explicit wildcard syntax
+app.get("/{*splat}", (req, res) => {
   res.sendFile(path.join(clientBuild, "index.html"));
 });
 
