@@ -267,6 +267,14 @@ textarea { min-height: 110px; padding: 12px 14px; resize: vertical; }
 /* Role-specific hero variants */
 .hero-student { background: linear-gradient(135deg, #e8f5e9, #fff 48%, #e0f2f1) !important; }
 .hero-business { background: linear-gradient(135deg, #e8eaf6, #fff 48%, #fce4ec) !important; }
+body.dark .hero-student { background: linear-gradient(135deg, #0d1f14, #0f172a 50%, #0a1a24) !important; color: #f8fafc; }
+body.dark .hero-business { background: linear-gradient(135deg, #0d1428, #0f172a 50%, #1a0d28) !important; color: #f8fafc; }
+body.dark .hero-student h1,
+body.dark .hero-business h1 { color: #f8fafc !important; }
+body.dark .hero-student p,
+body.dark .hero-business p { color: #94a3b8 !important; }
+body.dark .hero-student .eyebrow,
+body.dark .hero-business .eyebrow { background: rgba(255,255,255,.08); color: #94a3b8; }
 
 /* Quick action cards (logged-in homepage) */
 .role-quick-actions {
