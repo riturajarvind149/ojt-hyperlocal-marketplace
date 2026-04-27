@@ -22,21 +22,23 @@ const sectionRoutes = {
 };
 
 function routeFromPath(pathname) {
-  const businessMatch = pathname.match(/^\/business\/jobs\/([^/]+)\/(rankings|team-selection|ai-rankings)$/);
+  // Strip query string before parsing
+  const path = pathname.split("?")[0];
+
+  const businessMatch = path.match(/^\/business\/jobs\/([^/]+)\/(rankings|team-selection|ai-rankings)$/);
   if (businessMatch) {
     return { screen: "business", section: businessMatch[2], jobId: businessMatch[1] };
   }
-  // AI test route: /test/:jobId
-  const testMatch = pathname.match(/^\/test\/([^/]+)$/);
+  const testMatch = path.match(/^\/test\/([^/]+)$/);
   if (testMatch) return { screen: "test", section: "", jobId: testMatch[1] };
 
-  if (pathname.startsWith("/student"))  return { screen: "student",  section: pathname.split("/")[2] || "dashboard" };
-  if (pathname.startsWith("/business")) return { screen: "business", section: pathname.split("/")[2] || "dashboard" };
-  if (pathname === "/choose-role")      return { screen: "choose-role",    section: "" };
-  if (pathname === "/login")            return { screen: "login",          section: "" };
-  if (pathname === "/register")         return { screen: "register",       section: "" };
-  if (pathname === "/local-services")   return { screen: "local-services", section: "" };
-  if (pathname.startsWith("/local-services/")) return { screen: "local-workers", section: pathname.split("/")[2] || "" };
+  if (path.startsWith("/student"))  return { screen: "student",  section: path.split("/")[2] || "dashboard" };
+  if (path.startsWith("/business")) return { screen: "business", section: path.split("/")[2] || "dashboard" };
+  if (path === "/choose-role")      return { screen: "choose-role",    section: "" };
+  if (path === "/login")            return { screen: "login",          section: "" };
+  if (path === "/register")         return { screen: "register",       section: "" };
+  if (path === "/local-services")   return { screen: "local-services", section: "" };
+  if (path.startsWith("/local-services/")) return { screen: "local-workers", section: path.split("/")[2] || "" };
   return { screen: "home", section: "" };
 }
 
@@ -97,9 +99,21 @@ export default function App() {
   const [activeConversation, setActiveConversation] = useState(null);
   const [rankings, setRankings] = useState(null);
   const [teamSuggestions, setTeamSuggestions] = useState([]);
+  const [recommendedJobs, setRecommendedJobs] = useState([]);
   const [notice, setNotice] = useState({ text: "", type: "info" });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "light");
+
+  // Apply theme to body
+  useEffect(() => {
+    document.body.classList.toggle("dark", theme === "dark");
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+
+  function toggleTheme() {
+    setTheme((t) => t === "light" ? "dark" : "light");
+  }
 
   function showNotice(text, type = "info") {
     setNotice({ text, type });
@@ -182,7 +196,7 @@ export default function App() {
   async function loadPrivateData(role = user?.role) {
     if (!role) return;
     const tasks = [loadInbox()];
-    if (role === "student") tasks.push(loadStudentApplications());
+    if (role === "student") tasks.push(loadStudentApplications(), loadRecommendedJobs());
     if (role === "business") tasks.push(loadBusinessApplications());
     await Promise.all(tasks);
   }
@@ -203,6 +217,15 @@ export default function App() {
       setStudentApplications(Array.isArray(data) ? data : []);
     } catch {
       setStudentApplications([]);
+    }
+  }
+
+  async function loadRecommendedJobs() {
+    try {
+      const data = await request("/jobs/recommended", { headers: authHeaders() });
+      setRecommendedJobs(Array.isArray(data.jobs) ? data.jobs : []);
+    } catch {
+      setRecommendedJobs([]);
     }
   }
 
@@ -252,7 +275,7 @@ export default function App() {
       setUser(data.user);
       setRoleChoice(data.user.role);
       await loadPrivateData(data.user.role);
-      navigate(data.user.role === "business" ? "/business/dashboard" : "/student/dashboard");
+      navigate("/");  // Always land on smart homepage
       showNotice("Welcome back, " + data.user.name + ".");
     } catch (error) {
       showNotice(error.message, "error");
@@ -279,7 +302,8 @@ export default function App() {
           college: form.college,
           location: form.location,
           bio: form.bio,
-          skills: parseSkills(form.skills)
+          skills: Array.isArray(form.skills) ? form.skills : parseSkills(form.skills || ""),
+          jobTypePreference: form.jobTypePreference || "both"
         };
 
     try {
@@ -423,13 +447,21 @@ export default function App() {
   async function saveProfile(form) {
     setBusy(true);
     try {
+      const allSkills = Array.isArray(form.skills)
+        ? [...new Set([...form.skills, ...((form.skillsText || "").split(",").map(s => s.trim()).filter(Boolean))])]
+        : parseSkills(form.skills || "");
+
       const payload = {
         name: form.name,
         phone: form.phone,
         location: form.location,
         bio: form.bio,
         ...(user?.role === "student"
-          ? { college: form.college, skills: parseSkills(form.skills) }
+          ? {
+              college: form.college,
+              skills: allSkills,
+              jobTypePreference: form.jobTypePreference || "both"
+            }
           : { businessType: form.businessType })
       };
       const data = await request("/auth/me", {
@@ -493,6 +525,7 @@ export default function App() {
     setActiveConversation(null);
     setRankings(null);
     setTeamSuggestions([]);
+    setRecommendedJobs([]);
     navigate("/");
   }
 
@@ -501,7 +534,7 @@ export default function App() {
   return (
     <div className="app-shell">
       {notice.text && <div className={`toast toast-${notice.type}`}>{notice.text}</div>}
-      {route.screen === "home"           && <Home navigate={navigate} user={user} />}
+      {route.screen === "home"           && <Home navigate={navigate} user={user} jobs={jobs} />}
       {route.screen === "test"           && <TestPage jobId={route.jobId} navigate={navigate} authHeaders={authHeaders} showNotice={showNotice} />}
       {route.screen === "local-services" && <LocalServicesPage navigate={navigate} jobs={jobs} user={user} onApply={applyJob} appliedIds={user ? studentApplications.map((a) => a.jobId?._id).filter(Boolean) : []} busy={busy} />}
       {route.screen === "local-workers"  && <LocalWorkersPage category={route.section} navigate={navigate} />}
@@ -510,12 +543,13 @@ export default function App() {
       {route.screen === "register"       && <AuthCard mode="register" role={roleChoice} navigate={navigate} onSubmit={handleRegister} />}
       {route.screen === "student" && (
         <Protected user={user} role="student" navigate={navigate}>
-          <DashboardShell role="student" user={user} navigate={navigate} logout={logout} currentPath={window.location.pathname}>
+          <DashboardShell role="student" user={user} navigate={navigate} logout={logout} currentPath={window.location.pathname} theme={theme} toggleTheme={toggleTheme}>
             <StudentArea
               route={route}
               user={user}
               jobs={jobs}
               applications={studentApplications}
+              recommendedJobs={recommendedJobs}
               inbox={inbox}
               activeConversation={activeConversation}
               onApply={applyJob}
@@ -530,7 +564,7 @@ export default function App() {
       )}
       {route.screen === "business" && (
         <Protected user={user} role="business" navigate={navigate}>
-          <DashboardShell role="business" user={user} navigate={navigate} logout={logout} currentPath={window.location.pathname}>
+          <DashboardShell role="business" user={user} navigate={navigate} logout={logout} currentPath={window.location.pathname} theme={theme} toggleTheme={toggleTheme}>
             <BusinessArea
               route={route}
               user={user}
@@ -567,17 +601,18 @@ function Protected({ user, role, navigate, children }) {
 }
 
 // ─── CATEGORY DATA ────────────────────────────────────────────────
+// skills: keywords used to match jobs in this category
 const CATEGORIES = [
-  { id: "ai",          icon: "🤖", label: "AI Services",          count: "320+ jobs" },
-  { id: "development", icon: "💻", label: "Development & IT",      count: "1.2k jobs" },
-  { id: "design",      icon: "🎨", label: "Design & Creative",     count: "480 jobs"  },
-  { id: "marketing",   icon: "📣", label: "Marketing",             count: "390 jobs"  },
-  { id: "writing",     icon: "✍️",  label: "Writing & Translation", count: "210 jobs"  },
-  { id: "finance",     icon: "💰", label: "Finance",               count: "140 jobs"  },
-  { id: "legal",       icon: "⚖️",  label: "Legal",                 count: "90 jobs"   },
-  { id: "engineering", icon: "🔧", label: "Engineering",           count: "260 jobs"  },
-  { id: "business",    icon: "📊", label: "Business Support",      count: "310 jobs"  },
-  { id: "local",       icon: "📍", label: "Local Services",        count: "Nearby",   isLocal: true },
+  { id: "ai",          icon: "🤖", label: "AI Services",          skills: ["ai", "machine learning", "python", "tensorflow", "chatgpt", "llm", "nlp"] },
+  { id: "development", icon: "💻", label: "Development & IT",      skills: ["html", "css", "javascript", "react", "node", "nodejs", "django", "python", "java", "php", "typescript", "mongodb", "sql", "backend", "frontend", "fullstack"] },
+  { id: "design",      icon: "🎨", label: "Design & Creative",     skills: ["figma", "photoshop", "illustrator", "ui", "ux", "design", "canva", "sketch", "graphic"] },
+  { id: "marketing",   icon: "📣", label: "Marketing",             skills: ["marketing", "seo", "social media", "content", "ads", "google ads", "facebook", "instagram", "digital marketing"] },
+  { id: "writing",     icon: "✍️",  label: "Writing & Translation", skills: ["writing", "content writing", "copywriting", "translation", "editing", "blogging", "proofreading"] },
+  { id: "finance",     icon: "💰", label: "Finance",               skills: ["accounting", "finance", "tally", "excel", "bookkeeping", "gst", "taxation", "audit"] },
+  { id: "legal",       icon: "⚖️",  label: "Legal",                 skills: ["legal", "law", "lawyer", "contract", "compliance", "paralegal"] },
+  { id: "engineering", icon: "🔧", label: "Engineering",           skills: ["engineering", "mechanical", "electrical", "civil", "autocad", "solidworks", "cad"] },
+  { id: "business",    icon: "📊", label: "Business Support",      skills: ["business", "management", "hr", "operations", "admin", "excel", "powerpoint", "data entry"] },
+  { id: "local",       icon: "📍", label: "Local Services",        skills: [], isLocal: true },
 ];
 
 const LOCAL_SERVICES = [
@@ -633,26 +668,49 @@ function IntentModal({ category, onClose, onHire, onWork }) {
 }
 
 // ─── HOME PAGE ─────────────────────────────────────────────────────
-function Home({ navigate, user }) {
+function Home({ navigate, user, jobs }) {
   const [activeCategory, setActiveCategory] = useState(null);
 
-  // Category click: skip modal for logged-in users, navigate directly
+  // Count real jobs per category using skill keywords
+  function countJobsForCategory(cat) {
+    if (!cat.skills?.length) return 0;
+    return jobs.filter((j) =>
+      j.status === "open" &&
+      (j.skills || []).some((s) =>
+        cat.skills.some((ks) => s.toLowerCase().includes(ks) || ks.includes(s.toLowerCase()))
+      )
+    ).length;
+  }
+
+  // Check if student has matching skills for a category
+  function studentMatchesCategory(cat) {
+    if (!user?.skills?.length || !cat.skills?.length) return false;
+    return user.skills.some((us) =>
+      cat.skills.some((ks) => us.toLowerCase().includes(ks) || ks.includes(us.toLowerCase()))
+    );
+  }
+
+  // Category click: role-aware, no modal for logged-in users
   function handleCategoryClick(cat) {
     if (cat.isLocal) { navigate("/local-services"); return; }
 
     if (!user) {
-      // Guest — show role selection modal
-      setActiveCategory(cat);
+      setActiveCategory(cat);  // show guest modal
       return;
     }
 
-    // Logged-in student → go to job listing
     if (user.role === "student") {
-      navigate("/student/jobs");
+      // Navigate to jobs filtered by this category's skills
+      // If student has matching skills, filter by their skills; else show all in category
+      const studentSkills = (user.skills || []).join(",");
+      const catSkills = cat.skills.join(",");
+      const query = studentSkills
+        ? `/student/jobs?cat=${cat.id}&catskills=${catSkills}&myskills=${studentSkills}`
+        : `/student/jobs?cat=${cat.id}&catskills=${catSkills}`;
+      navigate(query);
       return;
     }
 
-    // Logged-in business → go to post job or applicants
     if (user.role === "business") {
       navigate("/business/post-job");
       return;
@@ -691,7 +749,6 @@ function Home({ navigate, user }) {
       );
     }
 
-    // Guest
     return (
       <section className="hero-card">
         <span className="eyebrow">Hyperlocal Talent & Services Platform</span>
@@ -708,7 +765,7 @@ function Home({ navigate, user }) {
 
   return (
     <div className="marketing-page">
-      {/* ── Topbar: auth-aware ── */}
+      {/* Auth-aware topbar */}
       <header className="marketing-topbar">
         <Logo navigate={navigate} />
         <nav style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -737,28 +794,20 @@ function Home({ navigate, user }) {
       <main>
         <HeroContent />
 
-        {/* ── Quick actions for logged-in users ── */}
+        {/* Quick actions for logged-in users */}
         {user?.role === "student" && (
           <section className="role-quick-actions">
             <div className="quick-action-card" onClick={() => navigate("/student/jobs")}>
-              <span className="qa-icon">🔍</span>
-              <strong>Browse Jobs</strong>
-              <small>Online & offline opportunities</small>
+              <span className="qa-icon">🔍</span><strong>Browse Jobs</strong><small>Online & offline</small>
             </div>
             <div className="quick-action-card" onClick={() => navigate("/student/applications")}>
-              <span className="qa-icon">📋</span>
-              <strong>My Applications</strong>
-              <small>Track status & test scores</small>
+              <span className="qa-icon">📋</span><strong>My Applications</strong><small>Track & test scores</small>
             </div>
             <div className="quick-action-card" onClick={() => navigate("/student/messages")}>
-              <span className="qa-icon">💬</span>
-              <strong>Messages</strong>
-              <small>Chat with employers</small>
+              <span className="qa-icon">💬</span><strong>Messages</strong><small>Chat with employers</small>
             </div>
             <div className="quick-action-card" onClick={() => navigate("/local-services")}>
-              <span className="qa-icon">📍</span>
-              <strong>Local Services</strong>
-              <small>Apply for offline jobs</small>
+              <span className="qa-icon">📍</span><strong>Local Services</strong><small>Offline jobs</small>
             </div>
           </section>
         )}
@@ -766,84 +815,77 @@ function Home({ navigate, user }) {
         {user?.role === "business" && (
           <section className="role-quick-actions">
             <div className="quick-action-card" onClick={() => navigate("/business/post-job")}>
-              <span className="qa-icon">➕</span>
-              <strong>Post a Job</strong>
-              <small>Online or offline with AI test</small>
+              <span className="qa-icon">➕</span><strong>Post a Job</strong><small>With AI test</small>
             </div>
             <div className="quick-action-card" onClick={() => navigate("/business/applications")}>
-              <span className="qa-icon">👥</span>
-              <strong>Applicants</strong>
-              <small>Review & rank candidates</small>
+              <span className="qa-icon">👥</span><strong>Applicants</strong><small>Review & rank</small>
             </div>
             <div className="quick-action-card" onClick={() => navigate("/business/jobs")}>
-              <span className="qa-icon">📊</span>
-              <strong>My Jobs</strong>
-              <small>Manage active postings</small>
+              <span className="qa-icon">📊</span><strong>My Jobs</strong><small>Manage postings</small>
             </div>
             <div className="quick-action-card" onClick={() => navigate("/local-services")}>
-              <span className="qa-icon">📍</span>
-              <strong>Local Workers</strong>
-              <small>Find on-site talent</small>
+              <span className="qa-icon">📍</span><strong>Local Workers</strong><small>On-site talent</small>
             </div>
           </section>
         )}
 
-        {/* ── Category grid ── */}
+        {/* Category grid — dynamic counts, skill-aware */}
         <section className="category-section">
           <h2>Browse by Field</h2>
           <p>
             {user?.role === "student"
-              ? "Click any category to find jobs in that field."
+              ? "Click a category to find matching jobs based on your skills."
               : user?.role === "business"
-              ? "Click any category to post a job or find workers."
+              ? "Click a category to post a job or find workers in that field."
               : "Click any category to hire talent, find work, or book a local service."}
           </p>
           <div className="category-grid">
-            {CATEGORIES.map((cat) => (
-              <button
-                key={cat.id}
-                className={`category-card${cat.isLocal ? " local" : ""}`}
-                onClick={() => handleCategoryClick(cat)}
-              >
-                <span className="cat-icon">{cat.icon}</span>
-                <span className="cat-label">{cat.label}</span>
-                <span className="cat-count">{cat.count}</span>
-              </button>
-            ))}
+            {CATEGORIES.map((cat) => {
+              const count = cat.isLocal ? null : countJobsForCategory(cat);
+              const hasMatch = user?.role === "student" && studentMatchesCategory(cat);
+              return (
+                <button
+                  key={cat.id}
+                  className={`category-card${cat.isLocal ? " local" : ""}${hasMatch ? " cat-match" : ""}`}
+                  onClick={() => handleCategoryClick(cat)}
+                >
+                  <span className="cat-icon">{cat.icon}</span>
+                  <span className="cat-label">{cat.label}</span>
+                  {cat.isLocal ? (
+                    <span className="cat-count">Nearby</span>
+                  ) : count > 0 ? (
+                    <span className="cat-count">{count} job{count !== 1 ? "s" : ""}</span>
+                  ) : user?.role === "student" ? (
+                    <span className="cat-count cat-empty">No jobs yet</span>
+                  ) : (
+                    <span className="cat-count cat-empty">—</span>
+                  )}
+                  {hasMatch && <span className="cat-match-badge">✓ Your skills</span>}
+                </button>
+              );
+            })}
           </div>
         </section>
 
-        {/* ── How it works ── */}
+        {/* How it works */}
         <section>
           <SectionTitle title="How it works" />
           <div className="how-strip">
-            <div className="how-card">
-              <div className="step">01</div>
-              <h4>Choose your field</h4>
-              <p>Pick from 9 digital categories or browse local services near you.</p>
-            </div>
-            <div className="how-card">
-              <div className="step">02</div>
-              <h4>Select your intent</h4>
-              <p>Hire talent, find work, or book a local worker — same platform, different flows.</p>
-            </div>
-            <div className="how-card">
-              <div className="step">03</div>
-              <h4>Get matched instantly</h4>
-              <p>AI-simulated skill tests rank candidates. Local workers show availability and distance.</p>
-            </div>
+            <div className="how-card"><div className="step">01</div><h4>Choose your field</h4><p>Pick from 9 digital categories or browse local services near you.</p></div>
+            <div className="how-card"><div className="step">02</div><h4>Select your intent</h4><p>Hire talent, find work, or book a local worker — same platform, different flows.</p></div>
+            <div className="how-card"><div className="step">03</div><h4>Get matched instantly</h4><p>AI-simulated skill tests rank candidates. Local workers show availability and distance.</p></div>
           </div>
         </section>
 
-        {/* ── Metrics ── */}
+        {/* Metrics */}
         <section className="metrics-strip">
           <MetricCard value="2,500+" label="Active Students" />
           <MetricCard value="450+"   label="Businesses" />
-          <MetricCard value="1,200+" label="Jobs Posted" />
+          <MetricCard value={`${jobs.filter(j => j.status === "open").length}+`} label="Open Jobs" />
           <MetricCard value="800+"   label="Local Workers" />
         </section>
 
-        {/* ── CTA — guests only ── */}
+        {/* CTA — guests only */}
         {!user && (
           <section className="cta-panel">
             <h2>Ready to get started?</h2>
@@ -858,15 +900,9 @@ function Home({ navigate, user }) {
       </main>
 
       <footer className="marketing-footer">
-        <div>
-          <strong>LocalHire</strong>
-          <p>Talent, freelance work, and local services — all in one place.</p>
-        </div>
+        <div><strong>LocalHire</strong><p>Talent, freelance work, and local services — all in one place.</p></div>
         <div className="footer-links">
-          <span>Browse Jobs</span>
-          <span>Hire Talent</span>
-          <span>Local Services</span>
-          <span>How it Works</span>
+          <span>Browse Jobs</span><span>Hire Talent</span><span>Local Services</span><span>How it Works</span>
         </div>
       </footer>
 
@@ -1060,13 +1096,146 @@ function LocalServicesPage({ navigate, jobs, user, onApply, appliedIds, busy }) 
   );
 }
 
-// ─── LOCAL WORKERS PAGE — redirects to unified local services with category filter
+// ─── APPLY MODAL ──────────────────────────────────────────────────
+function ApplyModal({ job, onClose, onApply, navigate }) {
+  const [jobType, setJobType] = useState("full-time");
+
+  return (
+    <div className="apply-modal-overlay" onClick={onClose}>
+      <div className="apply-modal" onClick={(e) => e.stopPropagation()}>
+        <h3>Apply for: {job.title}</h3>
+        <p>{job.businessId?.name || "Business"} · {job.location || "Local"} · {formatMoney(job.budget)}</p>
+        <div className="field">
+          <span>Job Type Preference</span>
+          <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+            {["full-time", "part-time"].map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={jobType === t ? "chip active" : "chip"}
+                onClick={() => setJobType(t)}
+                style={{ flex: 1, justifyContent: "center" }}
+              >
+                {t === "full-time" ? "⏰ Full-time" : "🕐 Part-time"}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="apply-modal-btns">
+          <button className="secondary-button" onClick={onClose}>Cancel</button>
+          <button className="primary-button" onClick={() => onApply(job._id, jobType)}>
+            Submit Application
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── LOCAL WORKERS PAGE — shows real DB jobs for a specific category ──
 function LocalWorkersPage({ category, navigate }) {
-  // Just redirect to local-services with the category pre-selected
+  const [jobs, setJobs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [applyTarget, setApplyTarget] = useState(null); // job to apply to
+
+  const svcInfo = {
+    maid: { icon: "🧹", label: "Maid" }, cook: { icon: "👨‍🍳", label: "Cook" },
+    cleaning: { icon: "🏠", label: "Home Cleaning" }, electrician: { icon: "⚡", label: "Electrician" },
+    plumber: { icon: "🔩", label: "Plumber" }, carpenter: { icon: "🪚", label: "Carpenter" },
+    babysitter: { icon: "👶", label: "Babysitter" }, driver: { icon: "🚗", label: "Driver" },
+    developer: { icon: "💻", label: "Developer" }, teacher: { icon: "📚", label: "Teacher" },
+    accountant: { icon: "💰", label: "Accountant" }, lawyer: { icon: "⚖️", label: "Lawyer" },
+    other: { icon: "📦", label: "Other" }
+  };
+  const svc = svcInfo[category] || { icon: "📍", label: category };
+
   useEffect(() => {
-    navigate("/local-services");
-  }, []);
-  return null;
+    async function fetchJobs() {
+      try {
+        const res = await fetch(`${API_URL}/jobs?category=${encodeURIComponent(category)}`);
+        const data = await res.json();
+        setJobs(Array.isArray(data) ? data.filter(j => j.status === "open") : []);
+      } catch {
+        setJobs([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchJobs();
+  }, [category]);
+
+  return (
+    <div className="local-services-page">
+      <header className="marketing-topbar">
+        <Logo navigate={navigate} />
+        <nav style={{ display: "flex", gap: 10 }}>
+          <button className="ghost-button" onClick={() => navigate("/login")}>Log In</button>
+          <button className="primary-button small" onClick={() => navigate("/choose-role")}>Get Started</button>
+        </nav>
+      </header>
+      <button className="local-back" onClick={() => navigate("/local-services")}>← Back to Local Services</button>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+        <span style={{ fontSize: "2rem" }}>{svc.icon}</span>
+        <div>
+          <h2 style={{ margin: 0 }}>{svc.label} Jobs</h2>
+          <p style={{ margin: 0, color: "#665f55", fontSize: "0.9rem" }}>
+            {loading ? "Loading..." : `${jobs.length} job${jobs.length !== 1 ? "s" : ""} available`}
+          </p>
+        </div>
+      </div>
+
+      {loading ? (
+        <EmptyState title="Loading jobs..." text="Fetching available positions." />
+      ) : jobs.length === 0 ? (
+        <div className="panel-card" style={{ padding: 32, textAlign: "center" }}>
+          <p style={{ fontSize: "1.5rem", margin: "0 0 8px" }}>📭</p>
+          <h3>No {svc.label} jobs posted yet</h3>
+          <p style={{ color: "#665f55" }}>No offline jobs available in this category right now.</p>
+          <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 16 }}>
+            <button className="primary-button small" onClick={() => navigate("/local-services")}>← Back to Categories</button>
+            <button className="secondary-button" onClick={() => navigate("/student/jobs")}>Browse All Jobs</button>
+          </div>
+        </div>
+      ) : (
+        <div className="list-stack">
+          {jobs.map((job) => (
+            <article key={job._id} className="panel-card application-card">
+              <div className="card-row space-between">
+                <div>
+                  <h3 style={{ margin: 0 }}>{job.title}</h3>
+                  <p style={{ margin: "3px 0 0", color: "#665f55", fontSize: "0.85rem" }}>
+                    {job.businessId?.name || "Business"} · {job.location || "Local"} · {formatRelative(job.createdAt)}
+                  </p>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontWeight: 800 }}>{formatMoney(job.budget)}</div>
+                  <span className="offline-badge">📍 Offline</span>
+                </div>
+              </div>
+              <p style={{ color: "#665f55", fontSize: "0.9rem", margin: "8px 0" }}>{job.description}</p>
+              <div className="chip-wrap">
+                {(job.skills || []).map((s) => <span key={s} className="chip neutral">{s}</span>)}
+              </div>
+              <div className="button-row" style={{ marginTop: 8 }}>
+                <button className="primary-button small" onClick={() => setApplyTarget(job)}>Apply Now</button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+
+      {/* Apply modal */}
+      {applyTarget && (
+        <ApplyModal
+          job={applyTarget}
+          onClose={() => setApplyTarget(null)}
+          onApply={(jobId) => { setApplyTarget(null); navigate("/login"); }}
+          navigate={navigate}
+        />
+      )}
+    </div>
+  );
 }
 function RoleChoice({ roleChoice, setRoleChoice, navigate }) {
   return (
@@ -1098,6 +1267,13 @@ function RoleChoice({ roleChoice, setRoleChoice, navigate }) {
 }
 
 function AuthCard({ mode, role, navigate, onSubmit }) {
+  const SKILL_OPTIONS = [
+    "HTML", "CSS", "JavaScript", "React", "Node.js", "Python", "Java", "PHP",
+    "TypeScript", "MongoDB", "SQL", "Figma", "Photoshop", "UI/UX Design",
+    "Graphic Design", "Marketing", "SEO", "Content Writing", "Social Media",
+    "Accounting", "Finance", "Legal", "Teaching", "Data Entry", "Excel"
+  ];
+
   const [form, setForm] = useState({
     role,
     name: "",
@@ -1108,7 +1284,9 @@ function AuthCard({ mode, role, navigate, onSubmit }) {
     college: "",
     location: "",
     bio: "",
-    skills: "",
+    skills: [],           // array for multi-select
+    skillsText: "",       // text fallback
+    jobTypePreference: "both",
     businessType: ""
   });
 
@@ -1119,10 +1297,24 @@ function AuthCard({ mode, role, navigate, onSubmit }) {
     setForm((current) => ({ ...current, [name]: value }));
   }
 
+  function toggleSkill(skill) {
+    setForm((prev) => ({
+      ...prev,
+      skills: prev.skills.includes(skill)
+        ? prev.skills.filter((s) => s !== skill)
+        : [...prev.skills, skill]
+    }));
+  }
+
   function submit(event) {
     event.preventDefault();
     if (mode === "register" && form.password !== form.confirmPassword) return;
-    onSubmit(form);
+    // Merge skills array + text input
+    const allSkills = [...new Set([
+      ...form.skills,
+      ...form.skillsText.split(",").map((s) => s.trim()).filter(Boolean)
+    ])];
+    onSubmit({ ...form, skills: allSkills });
   }
 
   return (
@@ -1137,12 +1329,59 @@ function AuthCard({ mode, role, navigate, onSubmit }) {
         {mode === "register" && <Input label="Confirm Password" name="confirmPassword" type="password" value={form.confirmPassword} onChange={update} />}
         {mode === "register" && <Input label="Phone" name="phone" value={form.phone} onChange={update} />}
         {mode === "register" && <Input label="Location" name="location" value={form.location} onChange={update} />}
+
         {mode === "register" && role === "student" && (
           <>
             <Input label="College" name="college" value={form.college} onChange={update} />
-            <Input label="Skills (comma separated)" name="skills" value={form.skills} onChange={update} placeholder="React, Figma, Content" />
+
+            {/* Skills multi-select */}
+            <div className="field">
+              <span>Your Skills <small style={{ color: "#aaa", fontWeight: 400 }}>(select all that apply)</small></span>
+              <div className="skill-picker">
+                {SKILL_OPTIONS.map((skill) => (
+                  <button
+                    key={skill}
+                    type="button"
+                    className={form.skills.includes(skill) ? "chip active" : "chip"}
+                    onClick={() => toggleSkill(skill)}
+                  >
+                    {skill}
+                  </button>
+                ))}
+              </div>
+              <input
+                name="skillsText"
+                value={form.skillsText}
+                onChange={update}
+                placeholder="Or type more skills: Django, Figma..."
+                style={{ marginTop: 8 }}
+              />
+            </div>
+
+            {/* Job type preference */}
+            <div className="field">
+              <span>Job Preference</span>
+              <div className="mode-selector">
+                {[
+                  { value: "online",  label: "🌐 Online",  desc: "Remote work" },
+                  { value: "offline", label: "📍 Offline", desc: "On-site work" },
+                  { value: "both",    label: "🔀 Both",    desc: "Any type" }
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    className={`mode-option${form.jobTypePreference === opt.value ? " active" : ""}`}
+                    onClick={() => setForm((p) => ({ ...p, jobTypePreference: opt.value }))}
+                  >
+                    <span>{opt.label}</span>
+                    <small>{opt.desc}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
           </>
         )}
+
         {mode === "register" && role === "business" && <Input label="Business Type" name="businessType" value={form.businessType} onChange={update} />}
         {mode === "register" && <Textarea label="Bio" name="bio" value={form.bio} onChange={update} placeholder="Tell us a bit about yourself or your business." />}
         <button className="primary-button full-width">{mode === "login" ? "Sign In" : "Create Account"}</button>
@@ -1154,7 +1393,7 @@ function AuthCard({ mode, role, navigate, onSubmit }) {
   );
 }
 
-function DashboardShell({ role, user, navigate, logout, currentPath, children }) {
+function DashboardShell({ role, user, navigate, logout, currentPath, theme, toggleTheme, children }) {
   const items = Object.entries(sectionRoutes[role]);
   return (
     <div className="dashboard-layout">
@@ -1170,10 +1409,13 @@ function DashboardShell({ role, user, navigate, logout, currentPath, children })
         <div className="sidebar-profile">
           <span className="avatar-circle">{initials(user?.name)}</span>
           <div>
-            <strong>{user?.name}</strong>
+            <strong style={{ fontSize: "0.88rem" }}>{user?.name}</strong>
             <small>{role === "business" ? user?.businessType || "Business" : user?.college || "Student"}</small>
           </div>
         </div>
+        <button className="theme-toggle" onClick={toggleTheme}>
+          {theme === "dark" ? "☀️ Light Mode" : "🌙 Dark Mode"}
+        </button>
         <button className="danger-link" onClick={logout}>Logout</button>
       </aside>
       <section className="dashboard-content">{children}</section>
@@ -1181,7 +1423,7 @@ function DashboardShell({ role, user, navigate, logout, currentPath, children })
   );
 }
 
-function StudentArea({ route, user, jobs, applications, inbox, activeConversation, onApply, onOpenConversation, onSendMessage, onSaveProfile, busy, navigate }) {
+function StudentArea({ route, user, jobs, applications, recommendedJobs, inbox, activeConversation, onApply, onOpenConversation, onSendMessage, onSaveProfile, busy, navigate }) {
   const appliedIds = useMemo(() => applications.map((app) => app.jobId?._id).filter(Boolean), [applications]);
   const approvedCount = applications.filter((app) => ["approved", "in_progress", "completed"].includes(app.status)).length;
   const pendingCount = applications.filter((app) => app.status === "pending").length;
@@ -1192,18 +1434,47 @@ function StudentArea({ route, user, jobs, applications, inbox, activeConversatio
   if (route.section === "messages") return <MessagesScreen role="student" inbox={inbox} activeConversation={activeConversation} onOpenConversation={onOpenConversation} onSendMessage={onSendMessage} />;
   if (route.section === "profile") return <ProfileEditor user={user} onSave={onSaveProfile} />;
 
+  const pref = user?.jobTypePreference || "both";
+  const prefLabel = pref === "online" ? "🌐 Online" : pref === "offline" ? "📍 Offline" : "🔀 Online & Offline";
+
   return (
     <>
       <PageHeader title="Student Dashboard" subtitle="Track applications, discover jobs, and keep hiring conversations moving." />
-      <HeroPanel title={`Welcome back, ${user?.name}`} text="Your dashboard combines live applications, simulated test performance, and recommended roles." actionLabel="Browse Jobs" actionPath="/student/jobs" navigate={navigate} />
+      <HeroPanel title={`Welcome back, ${user?.name}`} text="Your dashboard combines live applications, simulated test performance, and recommended roles." actionLabel="Browse All Jobs" actionPath="/student/jobs" navigate={navigate} />
       <StatsGrid items={[
         { label: "Applications", value: applications.length },
         { label: "Approved", value: approvedCount },
         { label: "Pending", value: pendingCount },
         { label: "Projected Earnings", value: formatMoney(earnings) }
       ]} />
-      <SectionTitle title="Recommended for You" />
-      <JobsList jobs={jobs.filter((job) => job.status === "open").slice(0, 4)} appliedIds={appliedIds} onApply={onApply} busy={busy} />
+
+      {/* Recommended jobs — skill + preference matched */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "14px 0 8px" }}>
+        <h3 className="section-title" style={{ margin: 0 }}>
+          ⭐ Recommended for You
+          <span style={{ marginLeft: 8, fontSize: "0.78rem", fontWeight: 600, color: "#888" }}>
+            {prefLabel} · based on your skills
+          </span>
+        </h3>
+        <button className="secondary-button" style={{ padding: "6px 14px", fontSize: "0.82rem" }} onClick={() => navigate("/student/jobs")}>
+          Browse All →
+        </button>
+      </div>
+      {recommendedJobs.length > 0 ? (
+        <JobsList jobs={recommendedJobs.slice(0, 4)} appliedIds={appliedIds} onApply={onApply} busy={busy} />
+      ) : (
+        <div className="panel-card" style={{ padding: "18px 20px", color: "#888", fontSize: "0.9rem" }}>
+          {user?.skills?.length
+            ? "No matching jobs found yet. Check back soon or browse all jobs."
+            : "Add skills to your profile to get personalized job recommendations."}
+          {!user?.skills?.length && (
+            <button className="secondary-button" style={{ marginLeft: 12, padding: "6px 14px", fontSize: "0.82rem" }} onClick={() => navigate("/student/profile")}>
+              Update Profile
+            </button>
+          )}
+        </div>
+      )}
+
       <SectionTitle title="Recent Applications" />
       <StudentApplications applications={applications.slice(0, 4)} onOpenConversation={onOpenConversation} navigate={navigate} compact />
     </>
@@ -1252,12 +1523,20 @@ function BusinessArea({ route, user, jobs, applications, inbox, activeConversati
   );
 }
 function StudentJobs({ jobs, appliedIds, onApply, busy }) {
+  // Read URL params for category-based filtering from homepage click
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlCatSkills = urlParams.get("catskills") ? urlParams.get("catskills").split(",").filter(Boolean) : [];
+  const urlCatId = urlParams.get("cat") || "";
+
   const [search, setSearch] = useState("");
   const [location, setLocation] = useState("all");
   const [sort, setSort] = useState("recent");
   const [selectedSkills, setSelectedSkills] = useState([]);
-  const [modeFilter, setModeFilter] = useState("all"); // all | online | offline
+  const [modeFilter, setModeFilter] = useState("all");
   const [filterOpen, setFilterOpen] = useState(false);
+  // Active category filter from URL (set when user clicks category on homepage)
+  const [activeCatFilter, setActiveCatFilter] = useState(urlCatId);
+  const [activeCatSkills, setActiveCatSkills] = useState(urlCatSkills);
 
   const locations = useMemo(() => ["all", ...new Set(jobs.map((job) => job.location).filter(Boolean))], [jobs]);
   const skillOptions = useMemo(() => [...new Set(jobs.flatMap((job) => job.skills || []))], [jobs]);
@@ -1266,6 +1545,16 @@ function StudentJobs({ jobs, appliedIds, onApply, busy }) {
     let list = jobs.filter((job) => job.status === "open");
     if (modeFilter === "online")  list = list.filter((j) => !j.isOffline && j.mode !== "offline");
     if (modeFilter === "offline") list = list.filter((j) => j.isOffline || j.mode === "offline" || j.mode === "both");
+
+    // Category skill filter (from homepage category click)
+    if (activeCatSkills.length) {
+      list = list.filter((job) =>
+        (job.skills || []).some((s) =>
+          activeCatSkills.some((ks) => s.toLowerCase().includes(ks) || ks.includes(s.toLowerCase()))
+        )
+      );
+    }
+
     if (search) {
       const query = search.toLowerCase();
       list = list.filter((job) => `${job.title} ${job.description} ${(job.skills || []).join(" ")} ${job.category || ""} ${job.location || ""}`.toLowerCase().includes(query));
@@ -1276,21 +1565,35 @@ function StudentJobs({ jobs, appliedIds, onApply, busy }) {
     }
     list = [...list].sort((a, b) => sort === "budget" ? Number(b.budget || 0) - Number(a.budget || 0) : new Date(b.createdAt) - new Date(a.createdAt));
     return list;
-  }, [jobs, search, location, selectedSkills, sort, modeFilter]);
+  }, [jobs, search, location, selectedSkills, sort, modeFilter, activeCatSkills]);
 
   function toggleSkill(skill) {
     setSelectedSkills((current) => current.includes(skill) ? current.filter((item) => item !== skill) : [...current, skill]);
   }
 
-  const activeFilters = (location !== "all" ? 1 : 0) + selectedSkills.length + (sort !== "recent" ? 1 : 0) + (modeFilter !== "all" ? 1 : 0);
+  const activeFilters = (location !== "all" ? 1 : 0) + selectedSkills.length + (sort !== "recent" ? 1 : 0) + (modeFilter !== "all" ? 1 : 0) + (activeCatSkills.length ? 1 : 0);
 
   return (
     <>
       {/* Top bar */}
       <div className="jobs-topbar">
         <div>
-          <h2 style={{ margin: 0 }}>Browse Jobs</h2>
-          <p style={{ margin: "4px 0 0", color: "#665f55", fontSize: "0.9rem" }}>{filtered.length} jobs found</p>
+          <h2 style={{ margin: 0 }}>
+            {activeCatFilter
+              ? `${CATEGORIES.find(c => c.id === activeCatFilter)?.label || "Category"} Jobs`
+              : "Browse Jobs"}
+          </h2>
+          <p style={{ margin: "4px 0 0", color: "#665f55", fontSize: "0.9rem" }}>
+            {filtered.length} jobs found
+            {activeCatSkills.length > 0 && (
+              <button
+                onClick={() => { setActiveCatFilter(""); setActiveCatSkills([]); window.history.replaceState({}, "", "/student/jobs"); }}
+                style={{ marginLeft: 8, background: "transparent", border: "1px solid #ccc", borderRadius: 999, padding: "2px 10px", fontSize: "0.75rem", cursor: "pointer", color: "#666" }}
+              >
+                ✕ Clear category filter
+              </button>
+            )}
+          </p>
         </div>
         <div className="jobs-topbar-right">
           {/* Mode quick-filter pills */}
@@ -1331,7 +1634,7 @@ function StudentJobs({ jobs, appliedIds, onApply, busy }) {
                   <option value="budget">Highest Budget</option>
                 </select>
               </div>
-              <button className="filter-clear-btn" onClick={() => { setLocation("all"); setSort("recent"); setSelectedSkills([]); setModeFilter("all"); }}>
+              <button className="filter-clear-btn" onClick={() => { setLocation("all"); setSort("recent"); setSelectedSkills([]); setModeFilter("all"); setActiveCatFilter(""); setActiveCatSkills([]); window.history.replaceState({}, "", "/student/jobs"); }}>
                 Clear All
               </button>
             </div>
@@ -1356,8 +1659,17 @@ function StudentJobs({ jobs, appliedIds, onApply, busy }) {
   );
 }
 
-function JobsList({ jobs, appliedIds, onApply, busy }) {
-  if (!jobs.length) return <EmptyState title="No matching jobs yet" text="Try changing filters or post a job from a business account." />;
+function JobsList({ jobs, appliedIds, onApply, busy, emptyTitle, emptyText, emptyAction }) {
+  if (!jobs.length) return (
+    <div className="panel-card" style={{ padding: "24px 20px", textAlign: "center" }}>
+      <p style={{ fontSize: "1.4rem", margin: "0 0 8px" }}>🔍</p>
+      <h3 style={{ margin: "0 0 6px" }}>{emptyTitle || "No jobs found"}</h3>
+      <p style={{ color: "#665f55", margin: "0 0 14px", fontSize: "0.9rem" }}>{emptyText || "Try changing filters or check back later."}</p>
+      {emptyAction && (
+        <button className="secondary-button" onClick={emptyAction.onClick}>{emptyAction.label}</button>
+      )}
+    </div>
+  );
 
   return (
     <div className="list-stack">
@@ -1379,6 +1691,7 @@ function JobsList({ jobs, appliedIds, onApply, busy }) {
                 {job.teamBased && <span className="chip accent">Team Based</span>}
                 {job.isOffline && <span className="offline-badge">📍 On-site</span>}
                 {job.mode === "both" && <span className="offline-badge">🔀 Online+Offline</span>}
+                {job.aiTest?.generated && <span className="chip accent" style={{ fontSize: "0.72rem" }}>🤖 AI Test</span>}
               </div>
             </div>
             <div className="job-side">
@@ -1475,47 +1788,125 @@ function BusinessJobs({ jobs, onNavigate, onDeleteJob, busy, compact = false }) 
 }
 
 function BusinessApplications({ applications, onUpdateStatus, onOpenConversation, busy, compact = false }) {
+  const [jobTypeFilter, setJobTypeFilter] = useState("all");
+  const [jobFilter, setJobFilter] = useState("all");
+
+  // Get unique job titles for filter
+  const jobTitles = useMemo(() => {
+    const titles = [...new Set(applications.map((a) => a.jobId?.title).filter(Boolean))];
+    return titles;
+  }, [applications]);
+
+  const filtered = useMemo(() => {
+    let list = applications;
+    if (jobTypeFilter !== "all") {
+      list = list.filter((a) => {
+        const mode = a.jobId?.mode || (a.jobId?.isOffline ? "offline" : "online");
+        if (jobTypeFilter === "online")  return mode === "online" || mode === "both";
+        if (jobTypeFilter === "offline") return mode === "offline" || mode === "both";
+        return true;
+      });
+    }
+    if (jobFilter !== "all") {
+      list = list.filter((a) => a.jobId?.title === jobFilter);
+    }
+    return list;
+  }, [applications, jobTypeFilter, jobFilter]);
+
   if (!applications.length) return <EmptyState title="No applicants yet" text="Applications will show ranking, scores, and chat access once students apply." />;
+
   return (
-    <div className="list-stack">
-      {applications.map((application) => {
-        const isPending = application.status === "pending";
-        const isApproved = application.status === "approved";
-        const isInProgress = application.status === "in_progress";
-        const isDone = application.status === "completed" || application.status === "rejected";
-        return (
-          <article key={application._id} className="panel-card application-card">
-            <div className="card-row space-between">
-              <div>
-                <h3>{application.studentId?.name || "Student"}</h3>
-                <p>{application.jobId?.title || "Job"} · {application.jobId?.location || "Local"}</p>
+    <>
+      {/* Filters */}
+      {!compact && (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
+          <span style={{ fontWeight: 700, fontSize: "0.85rem", color: "#665f55" }}>Filter:</span>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[["all","All Types"],["online","🌐 Online"],["offline","📍 Offline"]].map(([val, label]) => (
+              <button key={val} type="button" className={jobTypeFilter === val ? "chip active" : "chip"} style={{ fontSize: "0.8rem" }} onClick={() => setJobTypeFilter(val)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {jobTitles.length > 1 && (
+            <select value={jobFilter} onChange={(e) => setJobFilter(e.target.value)} style={{ minHeight: 36, borderRadius: 999, padding: "0 12px", border: "1px solid rgba(17,17,17,.12)", background: "#fff", fontSize: "0.85rem" }}>
+              <option value="all">All Jobs</option>
+              {jobTitles.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          )}
+          <span style={{ fontSize: "0.82rem", color: "#888" }}>{filtered.length} applicant{filtered.length !== 1 ? "s" : ""}</span>
+        </div>
+      )}
+
+      <div className="list-stack">
+        {filtered.map((application) => {
+          const isPending = application.status === "pending" || application.status === "test_pending";
+          const isApproved = application.status === "approved";
+          const isInProgress = application.status === "in_progress";
+          const isDone = application.status === "completed" || application.status === "rejected";
+          const jobMode = application.jobId?.mode || (application.jobId?.isOffline ? "offline" : "online");
+          const modeBadge = jobMode === "offline" ? "📍 Offline" : jobMode === "both" ? "🔀 Both" : "🌐 Online";
+          const modeColor = jobMode === "offline" ? "#fff3cd" : jobMode === "both" ? "#e8f0ff" : "#e4f0dc";
+          const modeTextColor = jobMode === "offline" ? "#7a5f02" : jobMode === "both" ? "#1f58a8" : "#2d5a1e";
+
+          return (
+            <article key={application._id} className="panel-card application-card">
+              <div className="card-row space-between">
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <h3 style={{ margin: 0 }}>{application.studentId?.name || "Student"}</h3>
+                    <span style={{ background: modeColor, color: modeTextColor, borderRadius: 999, padding: "3px 10px", fontSize: "0.75rem", fontWeight: 700 }}>
+                      {modeBadge}
+                    </span>
+                  </div>
+                  <p style={{ margin: "3px 0 0", color: "#665f55", fontSize: "0.85rem" }}>
+                    {application.jobId?.title || "Job"} · {application.jobId?.location || "Local"}
+                  </p>
+                </div>
+                <span className={`status-pill ${application.status}`}>{application.status.replace("_", " ")}</span>
               </div>
-              <span className={`status-pill ${application.status}`}>{application.status.replace("_", " ")}</span>
-            </div>
-            <div className="stats-inline wrap">
-              <span>Test Score: {application.testScore || 0}</span>
-              <span>Ranking Score: {application.rankingScore || 0}</span>
-              <span>Time Taken: {application.timeTaken || 0} min</span>
-            </div>
-            <div className="chip-wrap">{(application.matchedSkills || []).map((skill) => <span key={skill} className="chip neutral">{skill}</span>)}</div>
-            {!compact && !isDone && (
-              <div className="button-row wrap">
-                <button className="secondary-button" onClick={() => onOpenConversation(application._id)}>Message</button>
-                {isPending && <button className="secondary-button" disabled={busy} onClick={() => onUpdateStatus(application._id, "approved")}>Approve</button>}
-                {isPending && <button className="danger-link" disabled={busy} onClick={() => onUpdateStatus(application._id, "rejected")}>Reject</button>}
-                {(isPending || isApproved) && <button className="secondary-button" disabled={busy} onClick={() => onUpdateStatus(application._id, "in_progress")}>Start Work</button>}
-                {isInProgress && <button className="primary-button small" disabled={busy} onClick={() => onUpdateStatus(application._id, "completed")}>Mark Complete</button>}
+
+              {/* Student skills */}
+              {(application.studentId?.skills || []).length > 0 && (
+                <div className="chip-wrap" style={{ marginTop: 4 }}>
+                  {(application.studentId.skills).map((skill) => (
+                    <span key={skill} className={`chip ${(application.matchedSkills || []).includes(skill.toLowerCase()) ? "accent" : "neutral"}`} style={{ fontSize: "0.75rem" }}>
+                      {skill}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="stats-inline wrap">
+                <span>Test Score: {application.testScore || 0}</span>
+                <span>Ranking: {application.rankingScore || 0}</span>
+                <span>Time: {application.timeTaken || 0} min</span>
+                {application.skillMatchScore > 0 && <span>Skill Match: {application.skillMatchScore}%</span>}
               </div>
-            )}
-            {!compact && isDone && (
-              <div className="button-row wrap">
-                <button className="secondary-button" onClick={() => onOpenConversation(application._id)}>Message</button>
-              </div>
-            )}
-          </article>
-        );
-      })}
-    </div>
+
+              {!compact && !isDone && (
+                <div className="button-row wrap">
+                  <button className="secondary-button" onClick={() => onOpenConversation(application._id)}>Message</button>
+                  {isPending && (
+                    <>
+                      <button className="accept-btn" disabled={busy} onClick={() => onUpdateStatus(application._id, "approved")}>✓ Hire</button>
+                      <button className="reject-btn" disabled={busy} onClick={() => onUpdateStatus(application._id, "rejected")}>✕ Reject</button>
+                    </>
+                  )}
+                  {isApproved && <button className="secondary-button" disabled={busy} onClick={() => onUpdateStatus(application._id, "in_progress")}>▶ Start Work</button>}
+                  {isInProgress && <button className="primary-button small" disabled={busy} onClick={() => onUpdateStatus(application._id, "completed")}>✓ Mark Complete</button>}
+                </div>
+              )}
+              {!compact && isDone && (
+                <div className="button-row wrap">
+                  <button className="secondary-button" onClick={() => onOpenConversation(application._id)}>Message</button>
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
+    </>
   );
 }
 function RankingsScreen({ rankings, onNavigate, onUpdateStatus, busy }) {
@@ -1696,13 +2087,22 @@ function MessagesScreen({ role, inbox, activeConversation, onOpenConversation, o
 }
 
 function ProfileEditor({ user, onSave }) {
+  const SKILL_OPTIONS = [
+    "HTML", "CSS", "JavaScript", "React", "Node.js", "Python", "Java", "PHP",
+    "TypeScript", "MongoDB", "SQL", "Figma", "Photoshop", "UI/UX Design",
+    "Graphic Design", "Marketing", "SEO", "Content Writing", "Social Media",
+    "Accounting", "Finance", "Legal", "Teaching", "Data Entry", "Excel"
+  ];
+
   const [form, setForm] = useState({
     name: user?.name || "",
     phone: user?.phone || "",
     location: user?.location || "",
     bio: user?.bio || "",
     college: user?.college || "",
-    skills: (user?.skills || []).join(", "),
+    skills: user?.skills || [],
+    skillsText: "",
+    jobTypePreference: user?.jobTypePreference || "both",
     businessType: user?.businessType || ""
   });
 
@@ -1713,7 +2113,9 @@ function ProfileEditor({ user, onSave }) {
       location: user?.location || "",
       bio: user?.bio || "",
       college: user?.college || "",
-      skills: (user?.skills || []).join(", "),
+      skills: user?.skills || [],
+      skillsText: "",
+      jobTypePreference: user?.jobTypePreference || "both",
       businessType: user?.businessType || ""
     });
   }, [user]);
@@ -1723,9 +2125,22 @@ function ProfileEditor({ user, onSave }) {
     setForm((current) => ({ ...current, [name]: value }));
   }
 
+  function toggleSkill(skill) {
+    setForm((prev) => ({
+      ...prev,
+      skills: prev.skills.includes(skill)
+        ? prev.skills.filter((s) => s !== skill)
+        : [...prev.skills, skill]
+    }));
+  }
+
   function submit(event) {
     event.preventDefault();
-    onSave(form);
+    const allSkills = [...new Set([
+      ...form.skills,
+      ...form.skillsText.split(",").map((s) => s.trim()).filter(Boolean)
+    ])];
+    onSave({ ...form, skills: allSkills });
   }
 
   return (
@@ -1735,8 +2150,62 @@ function ProfileEditor({ user, onSave }) {
         <Input label="Name" name="name" value={form.name} onChange={update} />
         <Input label="Phone" name="phone" value={form.phone} onChange={update} />
         <Input label="Location" name="location" value={form.location} onChange={update} />
-        {user?.role === "student" && <Input label="College" name="college" value={form.college} onChange={update} />}
-        {user?.role === "student" && <Input label="Skills" name="skills" value={form.skills} onChange={update} />}
+
+        {user?.role === "student" && (
+          <>
+            <Input label="College" name="college" value={form.college} onChange={update} />
+
+            <div className="field">
+              <span>Your Skills</span>
+              <div className="skill-picker">
+                {SKILL_OPTIONS.map((skill) => (
+                  <button
+                    key={skill}
+                    type="button"
+                    className={form.skills.includes(skill) ? "chip active" : "chip"}
+                    onClick={() => toggleSkill(skill)}
+                  >
+                    {skill}
+                  </button>
+                ))}
+              </div>
+              <input
+                name="skillsText"
+                value={form.skillsText}
+                onChange={update}
+                placeholder="Add more skills: Django, Figma..."
+                style={{ marginTop: 8 }}
+              />
+              {form.skills.length > 0 && (
+                <p style={{ fontSize: "0.8rem", color: "#665f55", margin: "6px 0 0" }}>
+                  Selected: {form.skills.join(", ")}
+                </p>
+              )}
+            </div>
+
+            <div className="field">
+              <span>Job Preference</span>
+              <div className="mode-selector">
+                {[
+                  { value: "online",  label: "🌐 Online",  desc: "Remote work" },
+                  { value: "offline", label: "📍 Offline", desc: "On-site work" },
+                  { value: "both",    label: "🔀 Both",    desc: "Any type" }
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    className={`mode-option${form.jobTypePreference === opt.value ? " active" : ""}`}
+                    onClick={() => setForm((p) => ({ ...p, jobTypePreference: opt.value }))}
+                  >
+                    <span>{opt.label}</span>
+                    <small>{opt.desc}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
         {user?.role === "business" && <Input label="Business Type" name="businessType" value={form.businessType} onChange={update} />}
         <Textarea label="Bio" name="bio" value={form.bio} onChange={update} />
         <button className="primary-button">Save Changes</button>

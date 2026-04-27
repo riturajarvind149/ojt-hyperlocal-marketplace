@@ -81,6 +81,50 @@ function formatApplication(application) {
   };
 }
 
+exports.getRecommendedJobs = async (req, res) => {
+  try {
+    if (req.user.role !== "student") {
+      return res.status(403).json({ message: "Only students can get recommendations" });
+    }
+
+    const student = await Student.findById(req.user.id);
+    if (!student) return res.status(404).json({ message: "Student not found" });
+
+    const studentSkills = (student.skills || []).map((s) => s.toLowerCase().trim());
+    const pref = student.jobTypePreference || "both";
+
+    const filter = { status: "open" };
+
+    // Mode filter based on preference
+    if (pref === "online") {
+      filter.$or = [{ mode: "online" }, { mode: "both" }, { isOffline: { $ne: true } }];
+    } else if (pref === "offline") {
+      filter.$or = [{ mode: "offline" }, { mode: "both" }, { isOffline: true }];
+    }
+    // "both" → no mode filter
+
+    // Skill match filter — jobs that require ANY of the student's skills
+    if (studentSkills.length) {
+      const skillRegexes = studentSkills.map((s) => new RegExp(s, "i"));
+      filter.$and = [{ skills: { $in: skillRegexes } }];
+    }
+
+    const jobs = await Job.find(filter)
+      .populate("businessId", "name email location businessType")
+      .sort({ createdAt: -1 })
+      .limit(10);
+
+    res.status(200).json({
+      studentSkills,
+      jobTypePreference: pref,
+      jobs
+    });
+  } catch (error) {
+    console.error("getRecommendedJobs error:", error.message);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
 exports.createJob = async (req, res) => {
   try {
     if (req.user.role !== "business") {
@@ -160,6 +204,29 @@ exports.getJobs = async (req, res) => {
       const re = new RegExp(req.query.search, "i");
       filter.$and = filter.$and || [];
       filter.$and.push({ $or: [{ title: re }, { description: re }, { skills: re }, { category: re }, { location: re }] });
+    }
+    // ?skills=react,figma — match jobs that require ANY of these skills
+    if (req.query.skills) {
+      const skillsArray = req.query.skills.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+      if (skillsArray.length) {
+        filter.$and = filter.$and || [];
+        filter.$and.push({ skills: { $in: skillsArray.map((s) => new RegExp(s, "i")) } });
+      }
+    }
+    // ?catskills=react,figma — match jobs by category skill keywords (broader match)
+    if (req.query.catskills) {
+      const catSkills = req.query.catskills.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+      if (catSkills.length) {
+        const re = catSkills.map((s) => new RegExp(s, "i"));
+        filter.$and = filter.$and || [];
+        filter.$and.push({
+          $or: [
+            { skills: { $in: re } },
+            { title: { $in: re } },
+            { description: { $in: re } }
+          ]
+        });
+      }
     }
 
     const jobs = await Job.find(filter)

@@ -5,7 +5,6 @@ const jwt = require("jsonwebtoken");
 
 function sanitizeUser(user, role) {
   if (!user) return null;
-
   return {
     id: user._id,
     name: user.name,
@@ -16,7 +15,8 @@ function sanitizeUser(user, role) {
     location: user.location || "",
     bio: user.bio || "",
     skills: user.skills || [],
-    businessType: user.businessType || ""
+    businessType: user.businessType || "",
+    jobTypePreference: user.jobTypePreference || "both"
   };
 }
 
@@ -28,7 +28,7 @@ async function getUserFromTokenPayload(payload) {
 
 exports.registerStudent = async (req, res) => {
   try {
-    const { name, email, password, skills, phone, college, location, bio } = req.body;
+    const { name, email, password, skills, phone, college, location, bio, jobTypePreference } = req.body;
     const existingStudent = await Student.findOne({ email });
 
     if (existingStudent) {
@@ -40,11 +40,12 @@ exports.registerStudent = async (req, res) => {
       name,
       email,
       password: hashedPassword,
-      skills,
+      skills: Array.isArray(skills) ? skills : [],
       phone,
       college,
       location,
-      bio
+      bio,
+      jobTypePreference: ["online", "offline", "both"].includes(jobTypePreference) ? jobTypePreference : "both"
     });
 
     await newStudent.save();
@@ -160,6 +161,9 @@ exports.updateMe = async (req, res) => {
     if (req.user.role === "student") {
       if (typeof req.body.college === "string") user.college = req.body.college.trim();
       if (Array.isArray(req.body.skills)) user.skills = req.body.skills;
+      if (["online", "offline", "both"].includes(req.body.jobTypePreference)) {
+        user.jobTypePreference = req.body.jobTypePreference;
+      }
     }
 
     if (req.user.role === "business") {

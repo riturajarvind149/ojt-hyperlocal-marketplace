@@ -5,6 +5,7 @@ const { verifyToken } = require("../middleware/authMiddleware");
 const {
   createJob,
   getJobs,
+  getRecommendedJobs,
   applyJob,
   getApplications,
   getStudentApplications,
@@ -21,6 +22,7 @@ const {
 
 router.post("/", verifyToken, createJob);
 router.get("/", getJobs);
+router.get("/recommended", verifyToken, getRecommendedJobs);
 router.post("/apply", verifyToken, applyJob);
 router.get("/applications", verifyToken, getApplications);
 router.get("/my-applications", verifyToken, getStudentApplications);

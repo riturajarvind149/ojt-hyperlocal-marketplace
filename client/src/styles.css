@@ -99,30 +99,37 @@ textarea { min-height: 120px; padding: 12px 14px; resize: vertical; }
 .avatar-circle.large { width: 64px; height: 64px; }
 .danger-link { background: transparent; color: #b03d2f; text-align: left; border: 1px solid #b03d2f; }
 .danger-link:hover { background: #fdf0ee; }
-/* ── Layout overflow fixes ─────────────────────────────────────── */
-.dashboard-content {
-  padding: 32px 28px;   /* more breathing room from edges */
-  min-width: 0;
-  overflow-x: hidden;
-  max-width: 100%;
-}
+/* ── FIXED SIDEBAR + SCROLLABLE CONTENT ───────────────────────── */
 .dashboard-layout {
-  grid-template-columns: 260px minmax(0, 1fr);
+  display: flex;
   min-height: 100vh;
   overflow: hidden;
 }
 .sidebar {
-  padding: 24px 20px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  width: 240px;
+  min-width: 240px;
+  max-width: 240px;
+  padding: 24px 18px;
   border-right: 1px solid rgba(17,17,17,.08);
-  background: rgba(255,255,255,.56);
+  background: rgba(255,255,255,.92);
   backdrop-filter: blur(12px);
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  width: 260px;
-  min-width: 260px;
-  max-width: 260px;
-  overflow: hidden;
+  gap: 14px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex-shrink: 0;
+}
+.dashboard-content {
+  flex: 1;
+  min-width: 0;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 28px 26px;
 }
 /* All inputs/textareas/selects must never overflow */
 input, textarea, select {
@@ -226,6 +233,21 @@ textarea { min-height: 110px; padding: 12px 14px; resize: vertical; }
 .mode-option small { color: #888; font-size: 0.75rem; }
 .mode-option.active { border-color: #111; background: #fff; box-shadow: 0 0 0 2px #111 inset; }
 .mode-option:hover { border-color: #555; }
+
+/* Skill picker (registration + profile) */
+.skill-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+  background: #fafaf8;
+  border: 1px solid rgba(17,17,17,.1);
+  border-radius: 14px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.skill-picker .chip { cursor: pointer; font-size: 0.82rem; padding: 6px 12px; }
+.skill-picker .chip:hover { border-color: #111; }
 
 /* Local services search bar */
 .local-search-bar { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
@@ -707,4 +729,135 @@ textarea { min-height: 110px; padding: 12px 14px; resize: vertical; }
 @media (max-width: 640px) {
   .ai-rank-row { grid-template-columns: 40px 1fr 70px; }
   .result-breakdown { grid-template-columns: 1fr 1fr; }
+}
+
+/* ─── DARK THEME ─────────────────────────────────────────────────── */
+body.dark {
+  background: #0f172a;
+  color: #e2e8f0;
+}
+body.dark .sidebar {
+  background: rgba(15,23,42,.95);
+  border-right-color: rgba(255,255,255,.08);
+}
+body.dark .sidebar-link { color: #94a3b8; }
+body.dark .sidebar-link.active { background: #3b82f6; color: #fff; }
+body.dark .dashboard-content { background: #0f172a; }
+body.dark .panel-card,
+body.dark .hero-card,
+body.dark .stat-card,
+body.dark .job-card.modern,
+body.dark .filter-card,
+body.dark .empty-state,
+body.dark .podium-card,
+body.dark .rankings-table,
+body.dark .team-card,
+body.dark .conversation-list,
+body.dark .chat-panel {
+  background: rgba(30,41,59,.9);
+  border-color: rgba(255,255,255,.08);
+  color: #e2e8f0;
+}
+body.dark input,
+body.dark textarea,
+body.dark select {
+  background: #1e293b;
+  border-color: rgba(255,255,255,.12);
+  color: #e2e8f0;
+}
+body.dark .chip { background: #1e293b; color: #94a3b8; }
+body.dark .chip.active { background: #3b82f6; color: #fff; }
+body.dark .chip.neutral { background: #1e293b; color: #94a3b8; }
+body.dark .chip.accent { background: #14532d; color: #86efac; }
+body.dark .primary-button { background: #3b82f6; }
+body.dark .secondary-button { border-color: rgba(255,255,255,.2); color: #e2e8f0; }
+body.dark .muted-text, body.dark .helper-copy { color: #64748b; }
+body.dark .hero-panel { background: linear-gradient(135deg, #1e3a5f, #0f172a); }
+body.dark .stats-inline { color: #94a3b8; }
+body.dark .conversation-item { background: #1e293b; border-color: rgba(255,255,255,.08); }
+body.dark .conversation-item.active { border-color: #3b82f6; }
+body.dark .chat-bubble.incoming { background: #1e293b; color: #e2e8f0; }
+body.dark .chat-bubble.system { background: #1e3a5f; color: #93c5fd; }
+body.dark h1, body.dark h2, body.dark h3 { color: #f1f5f9; }
+body.dark p { color: #94a3b8; }
+body.dark .page-header p { color: #64748b; }
+body.dark .logo { color: #f1f5f9; }
+body.dark .logo-mark { background: #3b82f6; }
+body.dark .section-title { color: #f1f5f9; }
+body.dark .status-pill.open { background: #1e293b; color: #94a3b8; }
+body.dark .rank-row { border-bottom-color: rgba(255,255,255,.06); }
+body.dark .form-section-divider { border-top-color: rgba(255,255,255,.08); }
+body.dark .form-section-title { color: #64748b; }
+body.dark .mode-option { background: #1e293b; border-color: rgba(255,255,255,.1); color: #e2e8f0; }
+body.dark .mode-option.active { border-color: #3b82f6; background: #1e3a5f; }
+body.dark .skill-picker { background: #1e293b; border-color: rgba(255,255,255,.1); }
+body.dark .filter-drawer { background: rgba(30,41,59,.95); border-color: rgba(255,255,255,.08); }
+body.dark .jobs-search-inline { background: #1e293b; border-color: rgba(255,255,255,.12); color: #e2e8f0; }
+body.dark .filter-toggle-btn { background: #3b82f6; }
+body.dark .filter-clear-btn { background: transparent; border-color: rgba(255,255,255,.15); color: #94a3b8; }
+body.dark .cta-panel { background: linear-gradient(135deg, #1e3a5f, #0f172a); }
+body.dark .marketing-page { background: #0f172a; }
+body.dark .hero-card { background: linear-gradient(135deg, #1e293b, #0f172a 48%, #1e3a5f); }
+body.dark .category-card { background: rgba(30,41,59,.9); border-color: rgba(255,255,255,.08); }
+body.dark .category-card:hover { border-color: #3b82f6; }
+body.dark .how-card { background: rgba(30,41,59,.9); border-color: rgba(255,255,255,.08); }
+body.dark .metric-card { background: rgba(30,41,59,.9); border-color: rgba(255,255,255,.08); }
+body.dark .feature-card { background: rgba(30,41,59,.9); border-color: rgba(255,255,255,.08); }
+body.dark .local-card { background: rgba(30,41,59,.9); border-color: rgba(255,255,255,.08); }
+body.dark .worker-card { background: rgba(30,41,59,.9); border-color: rgba(255,255,255,.08); }
+body.dark .quick-action-card { background: rgba(30,41,59,.9); border-color: rgba(255,255,255,.08); }
+body.dark .quick-action-card strong { color: #f1f5f9; }
+body.dark .quick-action-card small { color: #64748b; }
+body.dark .auth-card, body.dark .selector-card { background: rgba(30,41,59,.95); border-color: rgba(255,255,255,.08); }
+body.dark .selector-option { background: #1e293b; border-color: rgba(255,255,255,.1); }
+body.dark .selector-option.active { border-color: #3b82f6; box-shadow: 0 0 0 2px #3b82f6 inset; }
+body.dark .danger-link { color: #f87171; border-color: #f87171; }
+body.dark .danger-link:hover { background: rgba(248,113,113,.1); }
+body.dark .score-bar-wrap { background: #1e293b; }
+body.dark .other-options-dropdown { background: #1e293b; border-color: rgba(255,255,255,.1); }
+body.dark .other-options-item { color: #e2e8f0; }
+body.dark .other-options-item:hover { background: #0f172a; }
+
+/* Theme toggle button */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid rgba(17,17,17,.12);
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: inherit;
+  transition: all .15s;
+  margin-top: auto;
+}
+.theme-toggle:hover { background: rgba(17,17,17,.06); }
+body.dark .theme-toggle { border-color: rgba(255,255,255,.15); }
+body.dark .theme-toggle:hover { background: rgba(255,255,255,.06); }
+
+/* Apply modal */
+.apply-modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.5);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200; padding: 20px;
+}
+.apply-modal {
+  background: #fff; border-radius: 24px; padding: 32px;
+  width: min(480px, 100%); box-shadow: 0 20px 60px rgba(0,0,0,.2);
+  animation: slideUp .2s ease;
+}
+body.dark .apply-modal { background: #1e293b; color: #e2e8f0; }
+.apply-modal h3 { margin: 0 0 6px; font-size: 1.2rem; }
+.apply-modal p { color: #665f55; margin-bottom: 20px; font-size: 0.9rem; }
+body.dark .apply-modal p { color: #94a3b8; }
+.apply-modal-btns { display: flex; gap: 10px; margin-top: 20px; }
+.apply-modal-btns button { flex: 1; }
+
+@media (max-width: 960px) {
+  .dashboard-layout { flex-direction: column; }
+  .sidebar { position: relative; height: auto; width: 100%; max-width: 100%; min-width: 0; border-right: 0; border-bottom: 1px solid rgba(17,17,17,.08); }
+  .dashboard-content { height: auto; overflow-y: visible; }
 }
