@@ -2,6 +2,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const path = require("path");
+const fs = require("fs");
 require("dotenv").config();
 
 // Guard: fail fast if critical env vars are missing
@@ -15,8 +16,8 @@ if (!process.env.JWT_SECRET) {
 }
 
 const authRoutes = require("./routes/authRoutes");
-const jobRoutes = require("./routes/jobRoutes");
-const aiRoutes  = require("./routes/aiRoutes");
+const jobRoutes  = require("./routes/jobRoutes");
+const aiRoutes   = require("./routes/aiRoutes");
 
 const app = express();
 
@@ -34,15 +35,21 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", db: mongoose.connection.readyState === 1 ? "connected" : "disconnected" });
 });
 
-// ── Serve React frontend in production ──────────────────────────
+// ── Serve React frontend only if build exists (production) ──────
 const clientBuild = path.join(__dirname, "client", "dist");
-app.use(express.static(clientBuild));
+const indexHtml   = path.join(clientBuild, "index.html");
 
-// All non-API routes → React app (SPA fallback)
-// Express 5 requires explicit wildcard syntax
-app.get("/{*splat}", (req, res) => {
-  res.sendFile(path.join(clientBuild, "index.html"));
-});
+if (fs.existsSync(indexHtml)) {
+  app.use(express.static(clientBuild));
+  // Express 5 wildcard syntax for SPA fallback
+  app.get("/{*splat}", (req, res) => {
+    res.sendFile(indexHtml);
+  });
+} else {
+  app.get("/", (req, res) => {
+    res.send("LocalHire API is running. Start the React dev server with: cd client && npm run dev");
+  });
+}
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGO_URI)
@@ -53,4 +60,7 @@ mongoose.connect(process.env.MONGO_URI)
   });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`API available at http://localhost:${PORT}/api/health`);
+});
