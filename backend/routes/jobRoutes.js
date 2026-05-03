@@ -20,7 +20,7 @@ const {
   sendConversationMessage,
   deleteJob,
   updateJob
-} = require("../controllers/jobcontroller");
+} = require("../controllers/jobController");
 
 router.post("/", verifyToken, createJob);
 router.get("/", getJobs);

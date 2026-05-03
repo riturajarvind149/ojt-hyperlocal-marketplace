@@ -3,7 +3,7 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
-require("dotenv").config();
+require("dotenv").config({ path: path.join(__dirname, "../.env") });
 
 // Guard: fail fast if critical env vars are missing
 if (!process.env.MONGO_URI) {
@@ -36,18 +36,17 @@ app.get("/api/health", (req, res) => {
 });
 
 // ── Serve React frontend only if build exists (production) ──────
-const clientBuild = path.join(__dirname, "client", "dist");
+const clientBuild = path.join(__dirname, "../frontend/dist");
 const indexHtml   = path.join(clientBuild, "index.html");
 
 if (fs.existsSync(indexHtml)) {
   app.use(express.static(clientBuild));
-  // Express 5 wildcard syntax for SPA fallback
   app.get("/{*splat}", (req, res) => {
     res.sendFile(indexHtml);
   });
 } else {
   app.get("/", (req, res) => {
-    res.send("LocalHire API is running. Start the React dev server with: cd client && npm run dev");
+    res.send("LocalHire API is running. Start the React dev server with: cd frontend && npm run dev");
   });
 }
 

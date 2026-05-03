@@ -1,4 +1,4 @@
-
+﻿
 :root {
   color: #121212;
   background: #f7f5f0;
@@ -911,7 +911,7 @@ body.dark .cat-match-badge { background: #14532d; color: #86efac; }
   .dashboard-content { height: auto; overflow-y: visible; }
 }
 
-/* ─── Email Step / Social Auth ──────────────────────────────────── */
+/* ΓöÇΓöÇΓöÇ Email Step / Social Auth ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ */
 
 /* Divider with centered "OR" text */
 .auth-divider {
@@ -992,7 +992,7 @@ body.dark .social-btn:hover {
   border-color: rgba(255, 255, 255, 0.25);
 }
 
-/* ─── OTP Input (RegisterOtpScreen) ─────────────────────────────── */
+/* ΓöÇΓöÇΓöÇ OTP Input (RegisterOtpScreen) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ */
 .otp-input {
   width: 100%;
   font-size: 2rem;
