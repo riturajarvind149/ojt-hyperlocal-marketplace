@@ -7,13 +7,15 @@ frontend/node_modules/
 .env
 .env.local
 .env.production
+
+backend/.env
 frontend/.env
 frontend/.env.local
 frontend/.env.production
 
 # ── Build output ──────────────────────────────────────────────────
 frontend/dist/
-frontend/.vite-cache/
+frontend/.vite/
 
 # ── Logs ──────────────────────────────────────────────────────────
 *.log
@@ -23,5 +25,5 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
-# ── Editor ────────────────────────────────────────────────────────
+# ── Editor files ──────────────────────────────────────────────────
 .vscode/
