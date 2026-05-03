@@ -6,10 +6,19 @@ const {
   registerBusiness,
   login,
   getMe,
-  updateMe
+  updateMe,
+  // ── New auth endpoints ──────────────────────────────────────────
+  verifyEmail,
+  resendVerification,
+  forgotPassword,
+  resetPassword,
+  googleAuth,
+  sendOtp,
+  verifyOtp
 } = require("../controllers/authController");
 const { verifyToken } = require("../middleware/authMiddleware");
 
+// ── Existing routes (unchanged) ────────────────────────────────────
 router.post("/register-student", registerStudent);
 router.post("/register-business", registerBusiness);
 router.post("/login", login);
@@ -23,5 +32,13 @@ router.get("/protected", verifyToken, (req, res) => {
   });
 });
 
-module.exports = router;
+// ── New routes (additions only) ────────────────────────────────────
+router.post("/verify-email",        verifyEmail);
+router.post("/resend-verification", resendVerification);
+router.post("/forgot-password",     forgotPassword);
+router.post("/reset-password",      resetPassword);
+router.post("/google",              googleAuth);
+router.post("/send-otp",            sendOtp);
+router.post("/verify-otp",          verifyOtp);
 
+module.exports = router;

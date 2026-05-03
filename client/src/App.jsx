@@ -1,5 +1,6 @@
 ﻿
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useGoogleLogin } from "@react-oauth/google";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
@@ -36,7 +37,12 @@ function routeFromPath(pathname) {
   if (path.startsWith("/business")) return { screen: "business", section: path.split("/")[2] || "dashboard" };
   if (path === "/choose-role")      return { screen: "choose-role",    section: "" };
   if (path === "/login")            return { screen: "login",          section: "" };
-  if (path === "/register")         return { screen: "register",       section: "" };
+  if (path === "/register/details") return { screen: "register",       section: "" };  // existing full form
+  if (path === "/register/verify-email") return { screen: "register-otp", section: "" }; // pre-reg OTP
+  if (path === "/register")         return { screen: "email-step",     section: "" };  // new email-first step
+  if (path === "/verify-email")     return { screen: "verify-email",   section: "" };
+  if (path === "/forgot-password")  return { screen: "forgot-password", section: "" };
+  if (path === "/reset-password")   return { screen: "reset-password", section: "" };
   if (path === "/local-services")   return { screen: "local-services", section: "" };
   if (path.startsWith("/local-services/")) return { screen: "local-workers", section: path.split("/")[2] || "" };
   return { screen: "home", section: "" };
@@ -104,6 +110,9 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "light");
+  // Stores the short-lived JWT issued after pre-registration OTP verification.
+  // Required to access /register/details — prevents bypassing email verification.
+  const [emailToken, setEmailToken] = useState(null);
 
   // Apply theme to body
   useEffect(() => {
@@ -278,6 +287,66 @@ export default function App() {
       navigate("/");  // Always land on smart homepage
       showNotice("Welcome back, " + data.user.name + ".");
     } catch (error) {
+      // If backend says email not verified, redirect to verify screen
+      if (error.message && error.message.toLowerCase().includes("verify your email")) {
+        showNotice(error.message, "error");
+        navigate("/verify-email?email=" + encodeURIComponent(form.email));
+      } else {
+        showNotice(error.message, "error");
+      }
+    }
+  }
+
+  async function handleEmailStep(email) {
+    // Step 1: send OTP to email, then navigate to OTP verification screen
+    try {
+      const data = await request("/auth/send-otp", {
+        method: "POST",
+        body: JSON.stringify({ email })
+      });
+      // In dev mode (no email configured), backend returns the OTP directly
+      // so we can pass it to the OTP screen for display
+      const devOtp = data.devOtp || null;
+      navigate(
+        "/register/verify-email?email=" + encodeURIComponent(email) +
+        (devOtp ? "&devOtp=" + devOtp : "")
+      );
+      showNotice(devOtp ? "Dev mode: OTP shown on screen." : "OTP sent! Check your inbox.");
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async function handleRegisterOtp(email, otp) {
+    // Step 2: verify OTP → receive emailToken → navigate to register form
+    const data = await request("/auth/verify-otp", {
+      method: "POST",
+      body: JSON.stringify({ email, otp })
+    });
+    // Store the emailToken — register form checks for it
+    setEmailToken(data.emailToken);
+    navigate("/register/details?email=" + encodeURIComponent(email));
+  }
+
+  async function handleGoogleAuth(credential, role) {
+    // credential: Google ID token string from @react-oauth/google
+    // OR legacy object { name, email, googleId } from GoogleLoginButtonInner (access_token flow)
+    try {
+      const body = typeof credential === "string"
+        ? { credential, role }
+        : { ...credential, role };   // legacy object path
+
+      const data = await request("/auth/google", {
+        method: "POST",
+        body: JSON.stringify(body)
+      });
+      localStorage.setItem("token", data.token);
+      setUser(data.user);
+      setRoleChoice(data.user.role);
+      await loadPrivateData(data.user.role);
+      navigate("/");
+      showNotice("Welcome" + (data.isNewUser ? ", your account has been created!" : " back, " + data.user.name + "!"));
+    } catch (error) {
       showNotice(error.message, "error");
     }
   }
@@ -311,7 +380,58 @@ export default function App() {
         method: "POST",
         body: JSON.stringify(payload)
       });
-      showNotice("Account created! Sign in with your new account.");
+      showNotice("Account created! Check your email for a verification OTP.");
+      navigate("/verify-email?email=" + encodeURIComponent(form.email));
+    } catch (error) {
+      showNotice(error.message, "error");
+    }
+  }
+
+  async function handleVerifyEmail(email, otp) {
+    try {
+      await request("/auth/verify-email", {
+        method: "POST",
+        body: JSON.stringify({ email, otp })
+      });
+      showNotice("Email verified! You can now sign in.");
+      navigate("/login");
+    } catch (error) {
+      showNotice(error.message, "error");
+    }
+  }
+
+  async function handleResendOTP(email) {
+    try {
+      await request("/auth/resend-verification", {
+        method: "POST",
+        body: JSON.stringify({ email })
+      });
+      showNotice("New OTP sent. Check your email.");
+    } catch (error) {
+      showNotice(error.message, "error");
+    }
+  }
+
+  async function handleForgotPassword(email) {
+    try {
+      await request("/auth/forgot-password", {
+        method: "POST",
+        body: JSON.stringify({ email })
+      });
+      showNotice("If that email exists, a reset OTP has been sent.");
+      navigate("/reset-password?email=" + encodeURIComponent(email));
+    } catch (error) {
+      showNotice(error.message, "error");
+    }
+  }
+
+  async function handleResetPassword(email, otp, newPassword) {
+    try {
+      await request("/auth/reset-password", {
+        method: "POST",
+        body: JSON.stringify({ email, otp, newPassword })
+      });
+      showNotice("Password reset successfully. Please sign in.");
       navigate("/login");
     } catch (error) {
       showNotice(error.message, "error");
@@ -539,8 +659,13 @@ export default function App() {
       {route.screen === "local-services" && <LocalServicesPage navigate={navigate} jobs={jobs} user={user} onApply={applyJob} appliedIds={user ? studentApplications.map((a) => a.jobId?._id).filter(Boolean) : []} busy={busy} />}
       {route.screen === "local-workers"  && <LocalWorkersPage category={route.section} navigate={navigate} />}
       {route.screen === "choose-role"    && <RoleChoice roleChoice={roleChoice} setRoleChoice={setRoleChoice} navigate={navigate} />}
-      {route.screen === "login"          && <AuthCard mode="login"    role={roleChoice} navigate={navigate} onSubmit={handleLogin} />}
-      {route.screen === "register"       && <AuthCard mode="register" role={roleChoice} navigate={navigate} onSubmit={handleRegister} />}
+      {route.screen === "login"          && <AuthCard mode="login" role={roleChoice} navigate={navigate} onSubmit={handleLogin} onGoogleAuth={handleGoogleAuth} />}
+      {route.screen === "email-step"     && <EmailStep role={roleChoice} navigate={navigate} onContinue={handleEmailStep} onGoogleAuth={handleGoogleAuth} />}
+      {route.screen === "register-otp"   && <RegisterOtpScreen navigate={navigate} onVerify={handleRegisterOtp} />}
+      {route.screen === "register"       && <AuthCard mode="register" role={roleChoice} navigate={navigate} onSubmit={handleRegister} emailToken={emailToken} />}
+      {route.screen === "verify-email"   && <VerifyEmailScreen navigate={navigate} onVerify={handleVerifyEmail} onResend={handleResendOTP} />}
+      {route.screen === "forgot-password" && <ForgotPasswordScreen navigate={navigate} onSubmit={handleForgotPassword} />}
+      {route.screen === "reset-password" && <ResetPasswordScreen navigate={navigate} onSubmit={handleResetPassword} />}
       {route.screen === "student" && (
         <Protected user={user} role="student" navigate={navigate}>
           <DashboardShell role="student" user={user} navigate={navigate} logout={logout} currentPath={window.location.pathname} theme={theme} toggleTheme={toggleTheme}>
@@ -1427,7 +1552,7 @@ function RoleChoice({ roleChoice, setRoleChoice, navigate }) {
   );
 }
 
-function AuthCard({ mode, role, navigate, onSubmit }) {
+function AuthCard({ mode, role, navigate, onSubmit, onGoogleAuth, emailToken }) {
   const SKILL_OPTIONS = [
     "HTML", "CSS", "JavaScript", "React", "Node.js", "Python", "Java", "PHP",
     "TypeScript", "MongoDB", "SQL", "Figma", "Photoshop", "UI/UX Design",
@@ -1435,10 +1560,20 @@ function AuthCard({ mode, role, navigate, onSubmit }) {
     "Accounting", "Finance", "Legal", "Teaching", "Data Entry", "Excel"
   ];
 
+  // Read prefilled email passed from EmailStep via query param
+  const prefillEmail = new URLSearchParams(window.location.search).get("email") || "";
+
+  // Guard: if this is the register form and no emailToken exists, redirect to email step
+  useEffect(() => {
+    if (mode === "register" && !emailToken) {
+      navigate("/register");
+    }
+  }, [mode, emailToken]);
+
   const [form, setForm] = useState({
     role,
     name: "",
-    email: "",
+    email: prefillEmail,
     password: "",
     confirmPassword: "",
     phone: "",
@@ -1546,8 +1681,527 @@ function AuthCard({ mode, role, navigate, onSubmit }) {
         {mode === "register" && role === "business" && <Input label="Business Type" name="businessType" value={form.businessType} onChange={update} />}
         {mode === "register" && <Textarea label="Bio" name="bio" value={form.bio} onChange={update} placeholder="Tell us a bit about yourself or your business." />}
         <button className="primary-button full-width">{mode === "login" ? "Sign In" : "Create Account"}</button>
+        {mode === "login" && (
+          <button className="link-button" type="button" onClick={() => navigate("/forgot-password")}>
+            Forgot password?
+          </button>
+        )}
         <button className="link-button" type="button" onClick={() => navigate(mode === "login" ? "/register" : "/login")}>
           {mode === "login" ? "Need an account? Sign up" : "Already have an account? Sign in"}
+        </button>
+
+        {/* ── Social login on the login screen ── */}
+        {mode === "login" && onGoogleAuth && (
+          <>
+            <div className="auth-divider"><span>OR</span></div>
+            <div className="social-buttons">
+              <GoogleLoginButton role={role} onGoogleAuth={onGoogleAuth} />
+            </div>
+          </>
+        )}
+      </form>
+    </main>
+  );
+}
+
+// ─── GOOGLE LOGIN BUTTON (shared, reused in EmailStep + AuthCard) ─
+// Uses @react-oauth/google's useGoogleLogin hook.
+// Renders a disabled placeholder if VITE_GOOGLE_CLIENT_ID is not configured.
+function GoogleLoginButton({ role, onGoogleAuth }) {
+  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const isConfigured = clientId && clientId !== "your_google_client_id_here";
+
+  if (!isConfigured) {
+    return (
+      <button
+        type="button"
+        className="social-btn social-btn-google"
+        disabled
+        title="Set VITE_GOOGLE_CLIENT_ID in client/.env to enable Google Sign-In"
+        style={{ opacity: 0.5, cursor: "not-allowed" }}
+      >
+        <GoogleIcon />
+        Continue with Google
+      </button>
+    );
+  }
+
+  // Only render the inner component (which calls useGoogleLogin) when
+  // GoogleOAuthProvider is present in the tree (guaranteed by main.jsx).
+  return <GoogleLoginButtonInner role={role} onGoogleAuth={onGoogleAuth} />;
+}
+
+// Inner component — must be a child of GoogleOAuthProvider.
+function GoogleLoginButtonInner({ role, onGoogleAuth }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const login = useGoogleLogin({
+    flow: "implicit",          // popup flow — no redirect URI needed
+    ux_mode: "popup",
+    onSuccess: async (tokenResponse) => {
+      setBusy(true);
+      setError("");
+      try {
+        // Fetch user profile using the access token
+        const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+          headers: { Authorization: `Bearer ${tokenResponse.access_token}` }
+        });
+        if (!res.ok) throw new Error("Failed to fetch Google profile");
+        const userInfo = await res.json();
+        // userInfo: { sub, email, name, picture }
+        await onGoogleAuth(
+          { name: userInfo.name, email: userInfo.email, googleId: userInfo.sub },
+          role
+        );
+      } catch (err) {
+        setError("Google sign-in failed. Please try again.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    onError: (err) => {
+      console.error("[Google] Login error:", err);
+      setError("Google sign-in was cancelled or failed.");
+    }
+  });
+
+  return (
+    <>
+      <button
+        type="button"
+        className="social-btn social-btn-google"
+        onClick={() => login()}
+        disabled={busy}
+      >
+        <GoogleIcon />
+        {busy ? "Signing in…" : "Continue with Google"}
+      </button>
+      {error && (
+        <p style={{ color: "#dc2626", fontSize: "0.82rem", textAlign: "center", margin: "4px 0 0" }}>
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
+
+function GoogleIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+      <path fill="none" d="M0 0h48v48H0z"/>
+    </svg>
+  );
+}
+
+// ─── REGISTER OTP SCREEN ──────────────────────────────────────────
+// Shown at /register/verify-email
+// User enters the 6-digit OTP sent to their email before the register form.
+function RegisterOtpScreen({ navigate, onVerify }) {
+  const params = new URLSearchParams(window.location.search);
+  const emailFromQuery = params.get("email") || "";
+  const devOtpFromQuery = params.get("devOtp") || "";   // only present in dev mode
+
+  const [email] = useState(emailFromQuery);
+  const [otp, setOtp] = useState(devOtpFromQuery);      // auto-fill in dev mode
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [newDevOtp, setNewDevOtp] = useState("");        // updated after resend
+
+  const isDevMode = !!devOtpFromQuery || !!newDevOtp;
+  const displayOtp = newDevOtp || devOtpFromQuery;
+
+  // Countdown timer for resend button
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const t = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendCooldown]);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+    if (!otp.trim() || otp.trim().length !== 6) {
+      setError("Please enter the 6-digit OTP.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await onVerify(email.trim(), otp.trim());
+    } catch (err) {
+      setError(err.message || "Invalid OTP. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleResend() {
+    if (resendCooldown > 0 || !email.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`${API_URL}/auth/send-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to resend OTP");
+      setResendCooldown(60);
+      // If dev mode OTP returned, auto-fill it
+      if (data.devOtp) {
+        setNewDevOtp(data.devOtp);
+        setOtp(data.devOtp);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleOtpChange(e) {
+    const val = e.target.value.replace(/\D/g, "").slice(0, 6);
+    setOtp(val);
+    setError("");
+  }
+
+  return (
+    <main className="auth-layout">
+      <Logo navigate={navigate} />
+      <form className="auth-card" onSubmit={handleSubmit} noValidate>
+        <div style={{ textAlign: "center", marginBottom: 8 }}>
+          <span style={{ fontSize: "2.5rem" }}>📬</span>
+        </div>
+        <h1 style={{ textAlign: "center" }}>Check your email</h1>
+        <p style={{ textAlign: "center" }}>
+          We sent a 6-digit code to <strong>{email || "your email"}</strong>.
+          Enter it below to continue.
+        </p>
+
+        {/* Dev mode banner — shown when email is not configured */}
+        {isDevMode && (
+          <div style={{
+            background: "#fef9c3", border: "1px solid #fde047", borderRadius: 10,
+            padding: "10px 14px", marginBottom: 14, textAlign: "center"
+          }}>
+            <p style={{ margin: 0, fontSize: "0.82rem", color: "#713f12", fontWeight: 600 }}>
+              ⚠️ Dev mode — email not configured
+            </p>
+            <p style={{ margin: "4px 0 0", fontSize: "1.4rem", fontWeight: 700, letterSpacing: "0.3em", color: "#1e293b" }}>
+              {displayOtp}
+            </p>
+            <p style={{ margin: "2px 0 0", fontSize: "0.75rem", color: "#713f12" }}>
+              OTP auto-filled above. Set EMAIL_USER + EMAIL_PASS in .env to send real emails.
+            </p>
+          </div>
+        )}
+
+        {/* OTP input — large, centered */}
+        <div className="field">
+          <span>Verification Code</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            value={otp}
+            onChange={handleOtpChange}
+            placeholder="000000"
+            maxLength={6}
+            className="otp-input"
+            autoFocus={!isDevMode}
+          />
+        </div>
+
+        {error && (
+          <p style={{ color: "#dc2626", fontSize: "0.85rem", margin: "0 0 10px", textAlign: "center" }}>
+            {error}
+          </p>
+        )}
+
+        <button className="primary-button full-width" type="submit" disabled={busy || otp.length !== 6}>
+          {busy ? "Verifying…" : "Verify & Continue →"}
+        </button>
+
+        <div style={{ textAlign: "center", marginTop: 14 }}>
+          <button
+            type="button"
+            className="link-button"
+            onClick={handleResend}
+            disabled={busy || resendCooldown > 0}
+          >
+            {resendCooldown > 0 ? `Resend OTP in ${resendCooldown}s` : "Resend OTP"}
+          </button>
+        </div>
+
+        <div style={{ textAlign: "center", marginTop: 8 }}>
+          <button type="button" className="link-button" style={{ fontSize: "0.82rem", color: "#888" }} onClick={() => navigate("/register")}>
+            ← Use a different email
+          </button>        </div>
+      </form>
+    </main>
+  );
+}
+
+// ─── EMAIL STEP (Step 1 of registration) ──────────────────────────
+// Shown at /register — user enters email or picks a social provider.
+// On "Continue with Email": calls send-otp API, then navigates to OTP screen.
+function EmailStep({ role, navigate, onContinue, onGoogleAuth }) {
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  function validateEmail(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+  }
+
+  async function handleContinue(e) {
+    e.preventDefault();
+    setError("");
+    if (!email.trim()) { setError("Please enter your email address."); return; }
+    if (!validateEmail(email)) { setError("Please enter a valid email address."); return; }
+    setBusy(true);
+    try {
+      await onContinue(email.trim());
+    } catch (err) {
+      setError(err.message || "Something went wrong. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="auth-layout">
+      <Logo navigate={navigate} />
+      <div className="auth-card">
+        <h1>Create your account</h1>
+        <p>Join LocalHire as a <strong>{role}</strong>. Enter your email to get started.</p>
+
+        {/* ── Email form ── */}
+        <form onSubmit={handleContinue} noValidate>
+          <Input
+            label="Email Address"
+            name="email"
+            type="email"
+            value={email}
+            onChange={(e) => { setEmail(e.target.value); setError(""); }}
+            placeholder="you@example.com"
+          />
+          {error && (
+            <p style={{ color: "#dc2626", fontSize: "0.83rem", margin: "-6px 0 10px", padding: "0 2px" }}>
+              {error}
+            </p>
+          )}
+          <button
+            className="primary-button full-width"
+            type="submit"
+            disabled={busy}
+            style={{ marginTop: 4 }}
+          >
+            {busy ? "Sending OTP…" : "Continue with Email →"}
+          </button>
+        </form>
+
+        {/* ── Divider ── */}
+        <div className="auth-divider">
+          <span>OR</span>
+        </div>
+
+        {/* ── Social buttons ── */}
+        <div className="social-buttons">
+          <GoogleLoginButton role={role} onGoogleAuth={onGoogleAuth} />
+        </div>
+
+        {/* ── Footer links ── */}
+        <div style={{ textAlign: "center", marginTop: 20 }}>
+          <button className="link-button" type="button" onClick={() => navigate("/login")}>
+            Already have an account? Sign in
+          </button>
+        </div>
+        <div style={{ textAlign: "center", marginTop: 8 }}>
+          <button
+            className="link-button"
+            type="button"
+            style={{ fontSize: "0.8rem", color: "#888" }}
+            onClick={() => navigate("/choose-role")}
+          >
+            ← Change role ({role})
+          </button>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+// ─── VERIFY EMAIL SCREEN ───────────────────────────────────────────
+function VerifyEmailScreen({ navigate, onVerify, onResend }) {
+  // Pre-fill email from query string if redirected from register/login
+  const emailFromQuery = new URLSearchParams(window.location.search).get("email") || "";
+  const [email, setEmail] = useState(emailFromQuery);
+  const [otp, setOtp] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!email.trim() || !otp.trim()) return;
+    setBusy(true);
+    await onVerify(email.trim(), otp.trim());
+    setBusy(false);
+  }
+
+  async function handleResend() {
+    if (!email.trim()) return;
+    setBusy(true);
+    await onResend(email.trim());
+    setBusy(false);
+  }
+
+  return (
+    <main className="auth-layout">
+      <Logo navigate={navigate} />
+      <form className="auth-card" onSubmit={handleSubmit}>
+        <h1>Verify your email</h1>
+        <p>Enter the 6-digit OTP sent to your email address. It expires in 15 minutes.</p>
+        <Input
+          label="Email Address"
+          name="email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <Input
+          label="OTP Code"
+          name="otp"
+          value={otp}
+          onChange={(e) => setOtp(e.target.value)}
+          placeholder="e.g. 482910"
+        />
+        <button className="primary-button full-width" disabled={busy}>
+          {busy ? "Verifying..." : "Verify Email"}
+        </button>
+        <button className="link-button" type="button" onClick={handleResend} disabled={busy}>
+          Resend OTP
+        </button>
+        <button className="link-button" type="button" onClick={() => navigate("/login")}>
+          Back to Sign In
+        </button>
+      </form>
+    </main>
+  );
+}
+
+// ─── FORGOT PASSWORD SCREEN ────────────────────────────────────────
+function ForgotPasswordScreen({ navigate, onSubmit }) {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!email.trim()) return;
+    setBusy(true);
+    await onSubmit(email.trim());
+    setBusy(false);
+  }
+
+  return (
+    <main className="auth-layout">
+      <Logo navigate={navigate} />
+      <form className="auth-card" onSubmit={handleSubmit}>
+        <h1>Forgot password?</h1>
+        <p>Enter your registered email and we'll send you a reset OTP.</p>
+        <Input
+          label="Email Address"
+          name="email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <button className="primary-button full-width" disabled={busy}>
+          {busy ? "Sending..." : "Send Reset OTP"}
+        </button>
+        <button className="link-button" type="button" onClick={() => navigate("/login")}>
+          Back to Sign In
+        </button>
+      </form>
+    </main>
+  );
+}
+
+// ─── RESET PASSWORD SCREEN ─────────────────────────────────────────
+function ResetPasswordScreen({ navigate, onSubmit }) {
+  const emailFromQuery = new URLSearchParams(window.location.search).get("email") || "";
+  const [email, setEmail] = useState(emailFromQuery);
+  const [otp, setOtp] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+    if (!email.trim() || !otp.trim() || !newPassword) return;
+    if (newPassword !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+    if (newPassword.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+    setBusy(true);
+    await onSubmit(email.trim(), otp.trim(), newPassword);
+    setBusy(false);
+  }
+
+  return (
+    <main className="auth-layout">
+      <Logo navigate={navigate} />
+      <form className="auth-card" onSubmit={handleSubmit}>
+        <h1>Reset password</h1>
+        <p>Enter the OTP from your email and choose a new password.</p>
+        <Input
+          label="Email Address"
+          name="email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <Input
+          label="OTP Code"
+          name="otp"
+          value={otp}
+          onChange={(e) => setOtp(e.target.value)}
+          placeholder="e.g. 482910"
+        />
+        <Input
+          label="New Password"
+          name="newPassword"
+          type="password"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+        />
+        <Input
+          label="Confirm New Password"
+          name="confirmPassword"
+          type="password"
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+        />
+        {error && <p style={{ color: "#dc2626", fontSize: "0.85rem", margin: "4px 0" }}>{error}</p>}
+        <button className="primary-button full-width" disabled={busy}>
+          {busy ? "Resetting..." : "Reset Password"}
+        </button>
+        <button className="link-button" type="button" onClick={() => navigate("/forgot-password")}>
+          Resend OTP
+        </button>
+        <button className="link-button" type="button" onClick={() => navigate("/login")}>
+          Back to Sign In
         </button>
       </form>
     </main>

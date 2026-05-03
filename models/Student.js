@@ -14,7 +14,21 @@ const StudentSchema = new mongoose.Schema({
     type: String,
     enum: ["online", "offline", "both"],
     default: "both"
-  }
+  },
+
+  // ── Auth extensions (email verification + password reset) ──────
+  isVerified:        { type: Boolean, default: false },
+  verificationToken: { type: String },
+  tokenExpiry:       { type: Date },
+
+  // ── Optional phone field (already existed, kept for OTP use) ───
+  // phone is already defined above
+
+  // ── Optional Google OAuth ──────────────────────────────────────
+  googleId:          { type: String },
+
+  // ── Auth provider: local | google | facebook ──────────────────
+  provider:          { type: String, default: "local" }
 }, { timestamps: true });
 
 module.exports = mongoose.model("Student", StudentSchema);

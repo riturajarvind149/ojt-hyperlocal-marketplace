@@ -910,3 +910,115 @@ body.dark .cat-match-badge { background: #14532d; color: #86efac; }
   .sidebar { position: relative; height: auto; width: 100%; max-width: 100%; min-width: 0; border-right: 0; border-bottom: 1px solid rgba(17,17,17,.08); }
   .dashboard-content { height: auto; overflow-y: visible; }
 }
+
+/* ─── Email Step / Social Auth ──────────────────────────────────── */
+
+/* Divider with centered "OR" text */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+  color: #9ca3af;
+  font-size: 0.82rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(17, 17, 17, 0.1);
+}
+
+/* Social button base */
+.social-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.social-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 18px;
+  border-radius: 999px;
+  font-size: 0.92rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  border: 1px solid rgba(17, 17, 17, 0.14);
+  background: #fff;
+  color: #111;
+}
+.social-btn:hover {
+  background: #f8f8f8;
+  border-color: rgba(17, 17, 17, 0.25);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+.social-btn:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+/* Google-specific accent on hover */
+.social-btn-google:hover {
+  border-color: #4285f4;
+}
+
+
+
+/* Dark mode overrides */
+body.dark .auth-divider {
+  color: #64748b;
+}
+body.dark .auth-divider::before,
+body.dark .auth-divider::after {
+  background: rgba(255, 255, 255, 0.1);
+}
+body.dark .social-btn {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+}
+body.dark .social-btn:hover {
+  background: #273549;
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+/* ─── OTP Input (RegisterOtpScreen) ─────────────────────────────── */
+.otp-input {
+  width: 100%;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.5em;
+  text-align: center;
+  padding: 14px 12px;
+  border: 2px solid rgba(17, 17, 17, 0.15);
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  outline: none;
+  transition: border-color 0.18s ease;
+  margin-top: 6px;
+}
+.otp-input:focus {
+  border-color: #2563eb;
+}
+.otp-input::placeholder {
+  color: #d1d5db;
+  letter-spacing: 0.4em;
+}
+body.dark .otp-input {
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #f8fafc;
+}
+body.dark .otp-input:focus {
+  border-color: #3b82f6;
+}

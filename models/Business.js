@@ -32,7 +32,18 @@ const businessSchema = new mongoose.Schema({
 
   bio:{
     type:String
-  }
+  },
+
+  // ── Auth extensions (email verification + password reset) ──────
+  isVerified:        { type: Boolean, default: false },
+  verificationToken: { type: String },
+  tokenExpiry:       { type: Date },
+
+  // ── Optional Google OAuth ──────────────────────────────────────
+  googleId:          { type: String },
+
+  // ── Auth provider: local | google | facebook ──────────────────
+  provider:          { type: String, default: "local" }
 
 },{timestamps:true});
 
