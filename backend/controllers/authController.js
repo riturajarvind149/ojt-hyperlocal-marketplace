@@ -2,7 +2,7 @@
 const Business = require("../models/Business");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
-const { sendVerificationEmail, sendPasswordResetEmail } = require("../utils/emailService");
+const { sendVerificationEmail, sendPasswordResetEmail } = require("../services/emailService");
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -556,7 +556,7 @@ exports.sendOtp = async (req, res) => {
     console.log(`[OTP] ──────────────────────────────────\n`);
 
     // Try to send email — non-blocking, never fails the request
-    const { sendVerificationEmail: sendOtpEmail } = require("../utils/emailService");
+    const { sendVerificationEmail: sendOtpEmail } = require("../services/emailService");
     let emailSent = false;
     try {
       await sendOtpEmail(email, otp, "there");

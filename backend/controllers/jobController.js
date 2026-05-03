@@ -8,7 +8,7 @@ const {
   generateSkillTest,
   simulateCandidateAssessment,
   uniqueSkills
-} = require("../utils/simulatedHiring");
+} = require("../services/simulatedHiring");
 
 async function findJobForBusiness(jobId, businessId) {
   return Job.findOne({ _id: jobId, businessId });

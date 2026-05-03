@@ -2,7 +2,7 @@ const https = require("https");
 const Job = require("../models/Job");
 const Application = require("../models/Application");
 const Student = require("../models/Student");
-const { uniqueSkills } = require("../utils/simulatedHiring");
+const { uniqueSkills } = require("../services/simulatedHiring");
 
 // ─── Gemini REST call (no SDK needed) ────────────────────────────────────────
 function callGemini(prompt) {
