@@ -27,7 +27,11 @@ async function getTransporter() {
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
-      }
+      },
+      // Fail fast instead of hanging — prevents "Sending..." forever on frontend
+      connectionTimeout: 10000,  // 10s to connect
+      greetingTimeout: 10000,    // 10s for SMTP greeting
+      socketTimeout: 15000       // 15s for socket inactivity
     });
   }
 

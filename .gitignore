@@ -11,7 +11,8 @@ frontend/node_modules/
 backend/.env
 frontend/.env
 frontend/.env.local
-frontend/.env.production
+# frontend/.env.production is intentionally committed — only contains
+# VITE_GOOGLE_CLIENT_ID which is a public OAuth client ID (not a secret)
 
 # ── Build output ──────────────────────────────────────────────────
 frontend/dist/
