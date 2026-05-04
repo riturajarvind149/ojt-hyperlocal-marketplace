@@ -1,0 +1,13 @@
+{
+  "name": "localhire",
+  "version": "1.0.0",
+  "description": "LocalHire — Hyperlocal Talent & Services Platform",
+  "scripts": {
+    "build": "cd frontend && npm install && npm run build",
+    "start": "cd backend && node server.js",
+    "install-all": "cd backend && npm install && cd ../frontend && npm install"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
