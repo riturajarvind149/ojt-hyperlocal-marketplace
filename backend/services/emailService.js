@@ -16,63 +16,61 @@ function hasRealCredentials() {
 }
 
 /**
- * Creates a nodemailer transporter.
- * - Uses Gmail/SMTP when real credentials are set in .env
- * - Falls back to console-only mode (no network) when credentials are placeholders
+ * Creates a nodemailer transporter using explicit Gmail SMTP settings.
+ * Using explicit host/port instead of service:"gmail" is more reliable
+ * on cloud platforms like Render.
  */
-async function getTransporter() {
+function getTransporter() {
   if (hasRealCredentials()) {
     return nodemailer.createTransport({
-      service: process.env.EMAIL_SERVICE || "gmail",
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true,           // SSL on port 465
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
       },
-      // Fail fast instead of hanging — prevents "Sending..." forever on frontend
-      connectionTimeout: 10000,  // 10s to connect
-      greetingTimeout: 10000,    // 10s for SMTP greeting
-      socketTimeout: 15000       // 15s for socket inactivity
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000
     });
   }
-
-  // No real credentials — use Ethereal test account (free, no setup needed)
-  // Ethereal emails are NOT delivered; preview URL is logged to console.
-  try {
-    const testAccount = await nodemailer.createTestAccount();
-    console.warn("[EmailService] Using Ethereal test account (emails not delivered).");
-    console.warn("[EmailService] Set EMAIL_USER and EMAIL_PASS in .env to send real emails.");
-    return nodemailer.createTransport({
-      host: "smtp.ethereal.email",
-      port: 587,
-      secure: false,
-      auth: { user: testAccount.user, pass: testAccount.pass }
-    });
-  } catch {
-    // Ethereal unavailable (no internet) — return null, callers handle gracefully
-    return null;
-  }
+  return null;
 }
 
 /**
- * Send an email. Returns silently if transporter is unavailable.
+ * Send an email with a hard timeout wrapper.
+ * Never throws — always resolves (returns null on failure).
  */
 async function sendMail(to, subject, html) {
-  const transporter = await getTransporter();
+  const transporter = getTransporter();
+
   if (!transporter) {
-    console.warn(`[EmailService] Cannot send email to ${to} — no transporter available.`);
+    console.warn(`[EmailService] No credentials configured — skipping email to ${to}`);
+    console.warn(`[EmailService] Set EMAIL_USER and EMAIL_PASS in environment variables.`);
     return null;
   }
-  const info = await transporter.sendMail({
-    from: `"LocalHire" <${process.env.EMAIL_USER || "noreply@localhire.app"}>`,
-    to,
-    subject,
-    html
-  });
-  const previewUrl = nodemailer.getTestMessageUrl(info);
-  if (previewUrl) {
-    console.log(`[EmailService] Preview: ${previewUrl}`);
+
+  // Wrap in a timeout so a hanging SMTP connection never blocks the API response
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error("Email send timeout after 20s")), 20000)
+  );
+
+  try {
+    const sendPromise = transporter.sendMail({
+      from: `"LocalHire" <${process.env.EMAIL_USER}>`,
+      to,
+      subject,
+      html
+    });
+
+    const info = await Promise.race([sendPromise, timeoutPromise]);
+    console.log(`[EmailService] Email sent to ${to} — MessageId: ${info.messageId}`);
+    return info;
+  } catch (err) {
+    console.error(`[EmailService] Failed to send email to ${to}: ${err.message}`);
+    return null;  // Never throw — callers handle null gracefully
   }
-  return info;
 }
 
 async function sendVerificationEmail(toEmail, otp, name) {
