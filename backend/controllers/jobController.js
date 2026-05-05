@@ -382,7 +382,8 @@ exports.applyJob = async (req, res) => {
       timeTaken: assessment.timeTaken,
       rankingScore: assessment.rankingScore,
       matchedSkills: assessment.matchedSkills,
-      skillMatchScore: Math.round((assessment.matchedSkills.length / Math.max(job.skills.length, 1)) * 100),
+      skillMatchScore: assessment.skillMatchScore || Math.round((assessment.matchedSkills.length / Math.max(job.skills.length, 1)) * 100),
+      finalScore: assessment.rankingScore,
       status: job.aiTest?.generated ? "test_pending" : "pending",
       notes: assessment.matchedSkills.length
         ? `Matched skills: ${assessment.matchedSkills.join(", ")}`

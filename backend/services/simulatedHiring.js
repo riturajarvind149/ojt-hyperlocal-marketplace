@@ -171,20 +171,27 @@ function simulateCandidateAssessment({ studentSkills = [], jobSkills = [], jobId
   const totalQuestions = Math.max(4, normalizedJobSkills.length * 2 || 4);
   const variance = seed % 16;
   const correctAnswers = Math.min(totalQuestions, Math.max(1, Math.round(overlapRatio * totalQuestions) + Math.floor(variance / 5)));
-  const testScore = Math.max(48, Math.min(98, Math.round(overlapRatio * 70 + 20 + variance)));
+  // testScore is based on actual skill overlap — no hardcoded floor
+  const testScore = Math.min(98, Math.round(overlapRatio * 70 + 15 + variance));
   const timeTaken = 12 + (seed % 18) + (normalizedJobSkills.length * 2);
-  const rankingScore = Math.round((testScore * 0.68) + (matchedSkills.length * 10) - (timeTaken * 0.22));
+  // simScore = (testScore * 0.7) + (skillMatch * 0.2) + (profileScore * 0.1)
+  // For simulated assessment, profileScore defaults to 50 (unknown)
+  const skillMatchScore = Math.round(overlapRatio * 100);
+  const rankingScore = Math.max(0, Math.min(100, Math.round(
+    (testScore * 0.7) + (skillMatchScore * 0.2) + (50 * 0.1)
+  )));
 
   return {
     matchedSkills,
     testScore,
     timeTaken,
     rankingScore,
+    skillMatchScore,
     totalQuestions,
     correctAnswers,
     breakdown: normalizedJobSkills.map((skill) => ({
       skill,
-      score: matchedSkills.includes(skill) ? Math.min(100, testScore) : Math.max(45, testScore - 18)
+      score: matchedSkills.includes(skill) ? Math.min(100, testScore) : Math.max(20, testScore - 25)
     }))
   };
 }

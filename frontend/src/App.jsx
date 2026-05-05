@@ -26,7 +26,7 @@ function routeFromPath(pathname) {
   // Strip query string before parsing
   const path = pathname.split("?")[0];
 
-  const businessMatch = path.match(/^\/business\/jobs\/([^/]+)\/(rankings|team-selection|ai-rankings)$/);
+  const businessMatch = path.match(/^\/business\/jobs\/([^/]+)\/(rankings|team-selection|ai-rankings|test-manager)$/);
   if (businessMatch) {
     return { screen: "business", section: businessMatch[2], jobId: businessMatch[1] };
   }
@@ -2310,13 +2310,11 @@ function BusinessArea({ route, user, jobs, applications, inbox, activeConversati
   const hiredCount = applications.filter((app) => ["approved", "in_progress", "completed"].includes(app.status)).length;
 
   if (route.section === "post-job") {
-    // Pre-fill category from URL if coming from category click
     const urlCat = new URLSearchParams(window.location.search).get("cat") || "";
     return <PostJobForm onCreateJob={onCreateJob} busy={busy} prefilledCategory={urlCat} />;
   }
   if (route.section === "jobs") return <BusinessJobs jobs={ownJobs} onNavigate={onNavigate} onDeleteJob={onDeleteJob} busy={busy} />;
   if (route.section === "applications") {
-    // Read category filter from URL if coming from category click on homepage
     const urlParams = new URLSearchParams(window.location.search);
     const catId = urlParams.get("cat") || "";
     const catSkills = urlParams.get("catskills") ? urlParams.get("catskills").split(",").filter(Boolean) : [];
@@ -2327,11 +2325,12 @@ function BusinessArea({ route, user, jobs, applications, inbox, activeConversati
   if (route.section === "rankings") return <RankingsScreen rankings={rankings} onNavigate={onNavigate} onUpdateStatus={onUpdateStatus} busy={busy} />;
   if (route.section === "ai-rankings") return <AiRankingsScreen jobId={route.jobId} onNavigate={onNavigate} />;
   if (route.section === "team-selection") return <TeamSelectionScreen jobId={route.jobId} suggestions={teamSuggestions} onSelectTeam={onSelectTeam} />;
+  if (route.section === "test-manager") return <TestManager jobId={route.jobId} onNavigate={onNavigate} />;
 
   return (
     <>
       <PageHeader title="Business Dashboard" subtitle="Manage job postings, compare ranked candidates, and move hires into delivery." />
-      <HeroPanel title={`Welcome back, ${user?.name}`} text="Your jobs now generate simulated skill tests and structured candidate rankings automatically." actionLabel="Post New Job" actionPath="/business/post-job" navigate={onNavigate} />
+      <HeroPanel title={`Welcome back, ${user?.name}`} text="Your jobs now generate AI-powered skill tests and structured candidate rankings automatically." actionLabel="Post New Job" actionPath="/business/post-job" navigate={onNavigate} />
       <StatsGrid items={[
         { label: "Total Jobs", value: ownJobs.length },
         { label: "Pending Applications", value: pendingApplications },
@@ -2605,6 +2604,7 @@ function BusinessJobs({ jobs, onNavigate, onDeleteJob, busy, compact = false }) 
             <div className="button-row wrap">
               <button className="secondary-button" onClick={() => onNavigate(`/business/jobs/${job._id}/rankings`)}>View Rankings</button>
               <button className="secondary-button" onClick={() => onNavigate(`/business/jobs/${job._id}/ai-rankings`)}>🏆 AI Rankings</button>
+              <button className="secondary-button" onClick={() => onNavigate(`/business/jobs/${job._id}/test-manager`)}>🧪 Manage Test</button>
               {job.teamBased && <button className="primary-button small" onClick={() => onNavigate(`/business/jobs/${job._id}/team-selection`)}>Team Suggestions</button>}
               {job.status === "open" && <button className="danger-link" disabled={busy} onClick={() => onDeleteJob(job._id)}>Delete</button>}
             </div>
@@ -2618,6 +2618,7 @@ function BusinessJobs({ jobs, onNavigate, onDeleteJob, busy, compact = false }) 
 function BusinessApplications({ applications, onUpdateStatus, onOpenConversation, onNavigate, busy, compact = false, catId = "", catSkills = [] }) {
   const [jobTypeFilter, setJobTypeFilter] = useState("all");
   const [jobFilter, setJobFilter] = useState("all");
+  const [selectedStudent, setSelectedStudent] = useState(null); // { applicationId, studentId, jobId, name }
 
   // Get unique job titles for filter
   const jobTitles = useMemo(() => {
@@ -2667,6 +2668,16 @@ function BusinessApplications({ applications, onUpdateStatus, onOpenConversation
 
   return (
     <>
+      {/* Student answer analysis modal */}
+      {selectedStudent && (
+        <StudentAnswerModal
+          jobId={selectedStudent.jobId}
+          userId={selectedStudent.studentId}
+          studentName={selectedStudent.name}
+          onClose={() => setSelectedStudent(null)}
+        />
+      )}
+
       {/* Category context banner */}
       {catLabel && (
         <div style={{ background: "#e8f0ff", borderRadius: 12, padding: "10px 16px", marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -2750,10 +2761,18 @@ function BusinessApplications({ applications, onUpdateStatus, onOpenConversation
                   <span>Ranking: {application.rankingScore || 0}</span>
                   <span>Time: {application.timeTaken || 0} min</span>
                   {application.skillMatchScore > 0 && <span>Skill Match: {application.skillMatchScore}%</span>}
+                  {application.testSubmitted && <span style={{ color: "#22c55e", fontWeight: 700 }}>✅ Test Submitted</span>}
                 </div>
                 {!compact && !isDone && (
                   <div className="button-row wrap">
                     <button className="secondary-button" onClick={() => onOpenConversation(application._id)}>Message</button>
+                    {application.testSubmitted && (
+                      <button className="secondary-button" onClick={() => setSelectedStudent({
+                        jobId: application.jobId?._id,
+                        studentId: application.studentId?._id,
+                        name: application.studentId?.name || "Student"
+                      })}>📊 View Answers</button>
+                    )}
                     {isPending && <button className="accept-btn" disabled={busy} onClick={() => onUpdateStatus(application._id, "approved")}>✓ Hire</button>}
                     {isPending && <button className="reject-btn" disabled={busy} onClick={() => onUpdateStatus(application._id, "rejected")}>✕ Reject</button>}
                     {isApproved && <button className="secondary-button" disabled={busy} onClick={() => onUpdateStatus(application._id, "in_progress")}>▶ Start Work</button>}
@@ -2763,6 +2782,13 @@ function BusinessApplications({ applications, onUpdateStatus, onOpenConversation
                 {!compact && isDone && (
                   <div className="button-row wrap">
                     <button className="secondary-button" onClick={() => onOpenConversation(application._id)}>Message</button>
+                    {application.testSubmitted && (
+                      <button className="secondary-button" onClick={() => setSelectedStudent({
+                        jobId: application.jobId?._id,
+                        studentId: application.studentId?._id,
+                        name: application.studentId?.name || "Student"
+                      })}>📊 View Answers</button>
+                    )}
                   </div>
                 )}
               </article>
@@ -3253,14 +3279,21 @@ function TestPage({ jobId, navigate, authHeaders, showNotice }) {
   const [tabWarnings, setTabWarnings] = useState(0);
   const timerRef = useRef(null);
 
-  // Fetch test
+  // Fetch test — try new endpoint first, fall back to legacy
   useEffect(() => {
     async function fetchTest() {
       try {
         const token = localStorage.getItem("token");
-        const res = await fetch(`${API_URL}/ai/test/${jobId}`, {
-          headers: { "Content-Type": "application/json", ...authHeaders() }
+        // Try new /api/tests/:jobId/student endpoint first
+        let res = await fetch(`${API_URL}/tests/${jobId}/student`, {
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
         });
+        // Fall back to legacy endpoint
+        if (!res.ok && res.status === 404) {
+          res = await fetch(`${API_URL}/ai/test/${jobId}`, {
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+          });
+        }
         const data = await res.json();
         if (!res.ok) throw new Error(data.message);
         setTestData(data);
@@ -3320,16 +3353,25 @@ function TestPage({ jobId, navigate, authHeaders, showNotice }) {
 
     const answersArray = Object.entries(answers).map(([idx, selected]) => ({
       questionIndex: Number(idx),
-      selected
+      selected,
+      selectedAnswer: selected  // support both field names
     }));
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/ai/test/submit`, {
+      // Try new endpoint first, fall back to legacy
+      let res = await fetch(`${API_URL}/tests/${jobId}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ jobId, answers: answersArray, timeTakenMinutes })
+        body: JSON.stringify({ answers: answersArray, timeTakenMinutes })
       });
+      if (!res.ok && res.status === 404) {
+        res = await fetch(`${API_URL}/ai/test/submit`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ jobId, answers: answersArray, timeTakenMinutes })
+        });
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
       setResult(data.result);
@@ -3345,33 +3387,72 @@ function TestPage({ jobId, navigate, authHeaders, showNotice }) {
   if (loading) return <main className="loading-screen" style={{ background: "#0d0d0d", color: "#fff" }}>Loading test...</main>;
 
   if (result) {
-    const pct = result.finalScore || 0;
+    const pct = result.percentage || result.finalScore || 0;
+    const correct = result.correctAnswers || result.score || 0;
+    const total = result.totalQuestions || 0;
     return (
       <div className="result-shell">
         <div className="result-card">
           <h2 style={{ marginBottom: 6 }}>Test Complete 🎉</h2>
           <p style={{ color: "#888", marginBottom: 24 }}>{testData?.jobTitle}</p>
           <div className="result-score-ring" style={{ "--pct": `${pct * 3.6}deg` }}>
-            <span className="result-score-num">{pct}</span>
+            <span className="result-score-num">{pct}%</span>
           </div>
-          <p style={{ color: "#888", marginBottom: 0 }}>Final Score</p>
+          <p style={{ color: "#888", marginBottom: 0 }}>Test Score</p>
           <div className="result-breakdown">
             <div className="result-stat">
-              <strong>{result.realTestScore}%</strong>
-              <span>Test Score</span>
+              <strong>{correct}/{total}</strong>
+              <span>Correct</span>
             </div>
             <div className="result-stat">
-              <strong>{result.skillMatchScore}%</strong>
+              <strong>{result.skillMatchScore || 0}%</strong>
               <span>Skill Match</span>
             </div>
             <div className="result-stat">
-              <strong>{result.correctAnswers}/{result.totalQuestions}</strong>
-              <span>Correct</span>
+              <strong>{result.finalScore || pct}</strong>
+              <span>Final Score</span>
             </div>
           </div>
           <p style={{ color: "#888", fontSize: "0.85rem", marginBottom: 20 }}>
-            Time taken: {result.timeTakenMinutes} min · Formula: (Test×0.6) + (Skills×0.3) − (Time×0.1)
+            Time taken: {result.timeTakenMinutes} min · Formula: (Test×0.7) + (Skills×0.2) + (Profile×0.1)
           </p>
+
+          {/* Per-question breakdown */}
+          {result.detailedResults && result.detailedResults.length > 0 && (
+            <div style={{ textAlign: "left", marginBottom: 20 }}>
+              <h4 style={{ marginBottom: 12, fontSize: "0.95rem" }}>Question-by-Question Review</h4>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {result.detailedResults.map((r, i) => (
+                  <div key={i} style={{
+                    background: r.isCorrect ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)",
+                    border: `1px solid ${r.isCorrect ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
+                    borderRadius: 10,
+                    padding: "10px 14px"
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                      <p style={{ margin: 0, fontSize: "0.85rem", fontWeight: 600, flex: 1 }}>
+                        Q{i + 1}: {r.questionText}
+                      </p>
+                      <span style={{ fontSize: "1.1rem", flexShrink: 0 }}>{r.isCorrect ? "✅" : "❌"}</span>
+                    </div>
+                    {!r.isCorrect && (
+                      <div style={{ marginTop: 6, fontSize: "0.8rem" }}>
+                        <span style={{ color: "#ef4444" }}>Your answer: {r.selectedAnswer || "Not answered"}</span>
+                        <span style={{ margin: "0 8px", color: "#888" }}>·</span>
+                        <span style={{ color: "#22c55e" }}>Correct: {r.correctAnswer}</span>
+                      </div>
+                    )}
+                    {r.explanation && (
+                      <p style={{ margin: "6px 0 0", fontSize: "0.78rem", color: "#888", fontStyle: "italic" }}>
+                        💡 {r.explanation}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <button className="result-back-btn" onClick={() => navigate("/student/applications")}>
             Back to My Applications
           </button>
@@ -3440,6 +3521,430 @@ function TestPage({ jobId, navigate, authHeaders, showNotice }) {
             }
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── TEST MANAGER (Business) ──────────────────────────────────────
+function TestManager({ jobId, onNavigate }) {
+  const [test, setTest] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [editingQuestion, setEditingQuestion] = useState(null); // question object
+  const [genForm, setGenForm] = useState({ topic: "", difficulty: "medium", numberOfQuestions: "5" });
+  const [newQ, setNewQ] = useState({ question: "", options: ["", "", "", ""], correctAnswer: "", explanation: "", type: "mcq" });
+
+  function showMsg(msg, isError = false) {
+    if (isError) setError(msg);
+    else setNotice(msg);
+    setTimeout(() => { setError(""); setNotice(""); }, 4000);
+  }
+
+  async function authFetch(path, opts = {}) {
+    const token = localStorage.getItem("token");
+    const res = await fetch(`${API_URL}${path}`, {
+      ...opts,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(opts.headers || {}) }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || "Request failed");
+    return data;
+  }
+
+  async function loadTest() {
+    setLoading(true);
+    try {
+      const data = await authFetch(`/tests/${jobId}`);
+      setTest(data.test);
+    } catch (e) {
+      if (e.message.includes("No test found")) setTest(null);
+      else showMsg(e.message, true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { if (jobId) loadTest(); }, [jobId]);
+
+  async function handleGenerate(e) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const data = await authFetch("/tests/generate", {
+        method: "POST",
+        body: JSON.stringify({ jobId, ...genForm, numberOfQuestions: Number(genForm.numberOfQuestions) })
+      });
+      setTest(data.test);
+      showMsg(`✅ Generated ${data.test.questionCount} questions`);
+    } catch (e) {
+      showMsg(e.message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleAddQuestion(e) {
+    e.preventDefault();
+    if (!newQ.question.trim()) return showMsg("Question text is required", true);
+    if (newQ.options.some(o => !o.trim())) return showMsg("All 4 options are required", true);
+    if (!newQ.correctAnswer) return showMsg("Select the correct answer", true);
+    setBusy(true);
+    try {
+      await authFetch(`/tests/${jobId}/questions`, {
+        method: "POST",
+        body: JSON.stringify({ ...newQ, options: newQ.options.map(o => o.trim()) })
+      });
+      await loadTest();
+      setNewQ({ question: "", options: ["", "", "", ""], correctAnswer: "", explanation: "", type: "mcq" });
+      setShowAddForm(false);
+      showMsg("Question added");
+    } catch (e) {
+      showMsg(e.message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleUpdateQuestion(e) {
+    e.preventDefault();
+    if (!editingQuestion) return;
+    setBusy(true);
+    try {
+      await authFetch(`/tests/${jobId}/questions/${editingQuestion._id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          question: editingQuestion.question,
+          options: editingQuestion.options,
+          correctAnswer: editingQuestion.correctAnswer,
+          explanation: editingQuestion.explanation,
+          type: editingQuestion.type
+        })
+      });
+      await loadTest();
+      setEditingQuestion(null);
+      showMsg("Question updated");
+    } catch (e) {
+      showMsg(e.message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeleteQuestion(questionId) {
+    if (!window.confirm("Delete this question?")) return;
+    setBusy(true);
+    try {
+      await authFetch(`/tests/${jobId}/questions/${questionId}`, { method: "DELETE" });
+      await loadTest();
+      showMsg("Question deleted");
+    } catch (e) {
+      showMsg(e.message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const cardStyle = { background: "var(--card-bg, #fff)", borderRadius: 16, padding: "20px 24px", boxShadow: "0 1px 4px rgba(0,0,0,.08)", marginBottom: 16 };
+  const inputStyle = { width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid rgba(17,17,17,.15)", fontSize: "0.9rem", boxSizing: "border-box", background: "transparent", color: "inherit" };
+  const btnPrimary = { background: "#111", color: "#fff", border: 0, borderRadius: 10, padding: "10px 20px", cursor: "pointer", fontSize: "0.9rem", fontWeight: 600 };
+  const btnSecondary = { background: "transparent", color: "#111", border: "1px solid rgba(17,17,17,.2)", borderRadius: 10, padding: "8px 16px", cursor: "pointer", fontSize: "0.85rem" };
+  const btnDanger = { background: "transparent", color: "#ef4444", border: "1px solid rgba(239,68,68,.3)", borderRadius: 10, padding: "6px 12px", cursor: "pointer", fontSize: "0.82rem" };
+
+  if (loading) return <EmptyState title="Loading test..." text="Fetching test data." />;
+
+  return (
+    <div>
+      <PageHeader title="🧪 Test Manager" subtitle="Generate, edit, and manage the skill test for this job." />
+
+      {error && <div style={{ background: "#fef2f2", color: "#ef4444", borderRadius: 10, padding: "10px 16px", marginBottom: 12 }}>{error}</div>}
+      {notice && <div style={{ background: "#f0fdf4", color: "#16a34a", borderRadius: 10, padding: "10px 16px", marginBottom: 12 }}>{notice}</div>}
+
+      {/* Generate AI Test */}
+      <div style={cardStyle}>
+        <h3 style={{ margin: "0 0 16px" }}>🤖 Generate AI Test</h3>
+        <form onSubmit={handleGenerate} style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
+          <div style={{ flex: "1 1 200px" }}>
+            <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, marginBottom: 4 }}>Topic / Subject</label>
+            <input style={inputStyle} value={genForm.topic} onChange={e => setGenForm(p => ({ ...p, topic: e.target.value }))} placeholder="e.g. React, Marketing, Python" />
+          </div>
+          <div style={{ flex: "0 0 140px" }}>
+            <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, marginBottom: 4 }}>Difficulty</label>
+            <select style={inputStyle} value={genForm.difficulty} onChange={e => setGenForm(p => ({ ...p, difficulty: e.target.value }))}>
+              <option value="easy">Easy</option>
+              <option value="medium">Medium</option>
+              <option value="hard">Hard</option>
+            </select>
+          </div>
+          <div style={{ flex: "0 0 140px" }}>
+            <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, marginBottom: 4 }}>Questions</label>
+            <select style={inputStyle} value={genForm.numberOfQuestions} onChange={e => setGenForm(p => ({ ...p, numberOfQuestions: e.target.value }))}>
+              {[3,4,5,6,7,8,10,12,15].map(n => <option key={n} value={n}>{n} questions</option>)}
+            </select>
+          </div>
+          <button type="submit" style={btnPrimary} disabled={busy}>{busy ? "Generating..." : "🤖 Generate"}</button>
+        </form>
+      </div>
+
+      {/* Current Questions */}
+      {test && (
+        <div style={cardStyle}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div>
+              <h3 style={{ margin: 0 }}>Questions ({test.questions.length})</h3>
+              <p style={{ margin: "4px 0 0", fontSize: "0.82rem", color: "#888" }}>
+                Topic: {test.topic} · Difficulty: {test.difficulty} · Time: {test.timeLimit} min
+              </p>
+            </div>
+            <button style={btnPrimary} onClick={() => setShowAddForm(true)}>+ Add Question</button>
+          </div>
+
+          {test.questions.length === 0 && (
+            <p style={{ color: "#888", textAlign: "center", padding: "20px 0" }}>No questions yet. Generate or add manually.</p>
+          )}
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {test.questions.map((q, i) => (
+              <div key={q._id} style={{ border: "1px solid rgba(17,17,17,.1)", borderRadius: 12, padding: "14px 16px" }}>
+                {editingQuestion?._id === q._id ? (
+                  <form onSubmit={handleUpdateQuestion}>
+                    <div style={{ marginBottom: 10 }}>
+                      <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>Question</label>
+                      <textarea style={{ ...inputStyle, minHeight: 60, marginTop: 4 }} value={editingQuestion.question}
+                        onChange={e => setEditingQuestion(p => ({ ...p, question: e.target.value }))} />
+                    </div>
+                    {editingQuestion.options.map((opt, oi) => (
+                      <div key={oi} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
+                        <input type="radio" name="editCorrect" checked={editingQuestion.correctAnswer === opt}
+                          onChange={() => setEditingQuestion(p => ({ ...p, correctAnswer: opt }))} />
+                        <input style={{ ...inputStyle, flex: 1 }} value={opt}
+                          onChange={e => {
+                            const opts = [...editingQuestion.options];
+                            opts[oi] = e.target.value;
+                            setEditingQuestion(p => ({ ...p, options: opts, correctAnswer: p.correctAnswer === opt ? e.target.value : p.correctAnswer }));
+                          }} placeholder={`Option ${oi + 1}`} />
+                      </div>
+                    ))}
+                    <div style={{ marginBottom: 10 }}>
+                      <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>Explanation (optional)</label>
+                      <input style={{ ...inputStyle, marginTop: 4 }} value={editingQuestion.explanation}
+                        onChange={e => setEditingQuestion(p => ({ ...p, explanation: e.target.value }))} />
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button type="submit" style={btnPrimary} disabled={busy}>Save</button>
+                      <button type="button" style={btnSecondary} onClick={() => setEditingQuestion(null)}>Cancel</button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                      <p style={{ margin: 0, fontWeight: 600, fontSize: "0.9rem", flex: 1 }}>
+                        <span style={{ color: "#888", marginRight: 6 }}>Q{i + 1}.</span>{q.question}
+                      </p>
+                      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                        <button style={btnSecondary} onClick={() => setEditingQuestion({ ...q, options: [...q.options] })}>Edit</button>
+                        <button style={btnDanger} disabled={busy} onClick={() => handleDeleteQuestion(q._id)}>Delete</button>
+                      </div>
+                    </div>
+                    <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {q.options.map((opt, oi) => (
+                        <span key={oi} style={{
+                          padding: "4px 12px", borderRadius: 999, fontSize: "0.8rem",
+                          background: opt === q.correctAnswer ? "rgba(34,197,94,0.15)" : "rgba(17,17,17,.06)",
+                          color: opt === q.correctAnswer ? "#16a34a" : "inherit",
+                          fontWeight: opt === q.correctAnswer ? 700 : 400,
+                          border: opt === q.correctAnswer ? "1px solid rgba(34,197,94,.4)" : "1px solid transparent"
+                        }}>
+                          {opt === q.correctAnswer ? "✓ " : ""}{opt}
+                        </span>
+                      ))}
+                    </div>
+                    {q.explanation && (
+                      <p style={{ margin: "6px 0 0", fontSize: "0.78rem", color: "#888", fontStyle: "italic" }}>💡 {q.explanation}</p>
+                    )}
+                    <span style={{ fontSize: "0.72rem", color: "#aaa", marginTop: 4, display: "block" }}>Type: {q.type}</span>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Add Question Form */}
+      {showAddForm && (
+        <div style={{ ...cardStyle, border: "2px solid rgba(17,17,17,.15)" }}>
+          <h3 style={{ margin: "0 0 16px" }}>Add New Question</h3>
+          <form onSubmit={handleAddQuestion}>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>Question Text</label>
+              <textarea style={{ ...inputStyle, minHeight: 60, marginTop: 4 }} value={newQ.question}
+                onChange={e => setNewQ(p => ({ ...p, question: e.target.value }))} placeholder="Enter your question..." />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: "0.82rem", fontWeight: 600, display: "block", marginBottom: 6 }}>
+                Options <span style={{ color: "#888", fontWeight: 400 }}>(select the correct one)</span>
+              </label>
+              {newQ.options.map((opt, i) => (
+                <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
+                  <input type="radio" name="newCorrect" checked={newQ.correctAnswer === opt && opt !== ""}
+                    onChange={() => opt && setNewQ(p => ({ ...p, correctAnswer: opt }))} />
+                  <input style={{ ...inputStyle, flex: 1 }} value={opt}
+                    onChange={e => {
+                      const opts = [...newQ.options];
+                      const wasCorrect = newQ.correctAnswer === opts[i];
+                      opts[i] = e.target.value;
+                      setNewQ(p => ({ ...p, options: opts, correctAnswer: wasCorrect ? e.target.value : p.correctAnswer }));
+                    }}
+                    placeholder={`Option ${i + 1}`} />
+                </div>
+              ))}
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>Explanation (optional)</label>
+              <input style={{ ...inputStyle, marginTop: 4 }} value={newQ.explanation}
+                onChange={e => setNewQ(p => ({ ...p, explanation: e.target.value }))} placeholder="Why is this the correct answer?" />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>Question Type</label>
+              <select style={{ ...inputStyle, marginTop: 4 }} value={newQ.type} onChange={e => setNewQ(p => ({ ...p, type: e.target.value }))}>
+                <option value="mcq">MCQ</option>
+                <option value="text">Text</option>
+                <option value="code">Code</option>
+              </select>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="submit" style={btnPrimary} disabled={busy}>Add Question</button>
+              <button type="button" style={btnSecondary} onClick={() => setShowAddForm(false)}>Cancel</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {!test && !loading && (
+        <div style={{ ...cardStyle, textAlign: "center", padding: "32px 24px" }}>
+          <p style={{ fontSize: "1.5rem", margin: "0 0 8px" }}>🧪</p>
+          <h3>No test yet</h3>
+          <p style={{ color: "#888" }}>Use the generator above to create an AI-powered test, or add questions manually.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── STUDENT ANSWER MODAL (Business views student's test results) ─
+function StudentAnswerModal({ jobId, userId, studentName, onClose }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/tests/${jobId}/submissions/${userId}`, {
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.message);
+        setData(json.submission);
+      } catch (e) {
+        setData({ error: e.message });
+      } finally {
+        setLoading(false);
+      }
+    }
+    if (jobId && userId) load();
+  }, [jobId, userId]);
+
+  const overlayStyle = {
+    position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000,
+    display: "flex", alignItems: "center", justifyContent: "center", padding: 20
+  };
+  const modalStyle = {
+    background: "var(--card-bg, #fff)", borderRadius: 20, padding: "28px 32px",
+    maxWidth: 640, width: "100%", maxHeight: "85vh", overflowY: "auto",
+    boxShadow: "0 20px 60px rgba(0,0,0,.3)"
+  };
+
+  return (
+    <div style={overlayStyle} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={modalStyle}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <div>
+            <h3 style={{ margin: 0 }}>📊 {studentName}'s Test Results</h3>
+            {data && !data.error && (
+              <p style={{ margin: "4px 0 0", color: "#888", fontSize: "0.85rem" }}>
+                {data.score}/{data.totalQuestions} correct · {data.percentage}% · {data.timeTakenMinutes} min
+              </p>
+            )}
+          </div>
+          <button onClick={onClose} style={{ background: "transparent", border: 0, fontSize: "1.4rem", cursor: "pointer", color: "#888" }}>✕</button>
+        </div>
+
+        {loading && <p style={{ textAlign: "center", color: "#888" }}>Loading results...</p>}
+        {data?.error && <p style={{ color: "#ef4444" }}>{data.error}</p>}
+
+        {data && !data.error && (
+          <>
+            {/* Score summary */}
+            <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+              {[
+                { label: "Score", value: `${data.score}/${data.totalQuestions}` },
+                { label: "Percentage", value: `${data.percentage}%` },
+                { label: "Time Taken", value: `${data.timeTakenMinutes} min` }
+              ].map(item => (
+                <div key={item.label} style={{ flex: "1 1 100px", background: "rgba(17,17,17,.04)", borderRadius: 12, padding: "12px 16px", textAlign: "center" }}>
+                  <strong style={{ fontSize: "1.4rem", display: "block" }}>{item.value}</strong>
+                  <span style={{ fontSize: "0.78rem", color: "#888" }}>{item.label}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Per-question results */}
+            {data.detailedResults && data.detailedResults.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {data.detailedResults.map((r, i) => (
+                  <div key={i} style={{
+                    background: r.isCorrect ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)",
+                    border: `1px solid ${r.isCorrect ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
+                    borderRadius: 12, padding: "12px 16px"
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                      <p style={{ margin: 0, fontWeight: 600, fontSize: "0.88rem", flex: 1 }}>
+                        Q{i + 1}: {r.questionText}
+                      </p>
+                      <span style={{ fontSize: "1.1rem", flexShrink: 0 }}>{r.isCorrect ? "✅" : "❌"}</span>
+                    </div>
+                    <div style={{ marginTop: 8, fontSize: "0.82rem", display: "flex", flexWrap: "wrap", gap: 12 }}>
+                      <span>
+                        <span style={{ color: "#888" }}>Selected: </span>
+                        <strong style={{ color: r.isCorrect ? "#16a34a" : "#ef4444" }}>
+                          {r.selectedAnswer || "Not answered"}
+                        </strong>
+                      </span>
+                      {!r.isCorrect && (
+                        <span>
+                          <span style={{ color: "#888" }}>Correct: </span>
+                          <strong style={{ color: "#16a34a" }}>{r.correctAnswer}</strong>
+                        </span>
+                      )}
+                    </div>
+                    {r.explanation && (
+                      <p style={{ margin: "6px 0 0", fontSize: "0.78rem", color: "#888", fontStyle: "italic" }}>
+                        💡 {r.explanation}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ color: "#888", textAlign: "center" }}>No detailed results available for this submission.</p>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

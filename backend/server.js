@@ -15,9 +15,10 @@ if (!process.env.JWT_SECRET) {
   process.exit(1);
 }
 
-const authRoutes = require("./routes/authRoutes");
-const jobRoutes  = require("./routes/jobRoutes");
-const aiRoutes   = require("./routes/aiRoutes");
+const authRoutes  = require("./routes/authRoutes");
+const jobRoutes   = require("./routes/jobRoutes");
+const aiRoutes    = require("./routes/aiRoutes");
+const testRoutes  = require("./routes/testRoutes");
 
 const app = express();
 
@@ -26,9 +27,10 @@ app.use(cors());
 app.use(express.json());
 
 // API Routes
-app.use("/api/auth", authRoutes);
-app.use("/api/jobs", jobRoutes);
-app.use("/api/ai",   aiRoutes);
+app.use("/api/auth",  authRoutes);
+app.use("/api/jobs",  jobRoutes);
+app.use("/api/ai",    aiRoutes);
+app.use("/api/tests", testRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => {
