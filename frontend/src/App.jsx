@@ -3531,17 +3531,20 @@ function TestManager({ jobId, onNavigate }) {
   const [test, setTest] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [addingId, setAddingId] = useState(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [editingQuestion, setEditingQuestion] = useState(null); // question object
+  const [editingQuestion, setEditingQuestion] = useState(null);
   const [genForm, setGenForm] = useState({ topic: "", difficulty: "medium", numberOfQuestions: "5" });
-  const [newQ, setNewQ] = useState({ question: "", options: ["", "", "", ""], correctAnswer: "", explanation: "", type: "mcq" });
+  const [suggestedQuestions, setSuggestedQuestions] = useState([]);
+  const generatorRef = useRef(null);
+  const suggestionsRef = useRef(null);
 
   function showMsg(msg, isError = false) {
     if (isError) setError(msg);
     else setNotice(msg);
-    setTimeout(() => { setError(""); setNotice(""); }, 4000);
+    setTimeout(() => { setError(""); setNotice(""); }, 5000);
   }
 
   async function authFetch(path, opts = {}) {
@@ -3570,7 +3573,7 @@ function TestManager({ jobId, onNavigate }) {
 
   useEffect(() => { if (jobId) loadTest(); }, [jobId]);
 
-  async function handleGenerate(e) {
+  async function handleGenerateFull(e) {
     e.preventDefault();
     setBusy(true);
     try {
@@ -3579,7 +3582,8 @@ function TestManager({ jobId, onNavigate }) {
         body: JSON.stringify({ jobId, ...genForm, numberOfQuestions: Number(genForm.numberOfQuestions) })
       });
       setTest(data.test);
-      showMsg(`✅ Generated ${data.test.questionCount} questions`);
+      setSuggestedQuestions([]);
+      showMsg(`✅ Test generated with ${data.test.questionCount} questions`);
     } catch (e) {
       showMsg(e.message, true);
     } finally {
@@ -3587,21 +3591,72 @@ function TestManager({ jobId, onNavigate }) {
     }
   }
 
-  async function handleAddQuestion(e) {
+  async function handleGenerateMore(e) {
     e.preventDefault();
-    if (!newQ.question.trim()) return showMsg("Question text is required", true);
-    if (newQ.options.some(o => !o.trim())) return showMsg("All 4 options are required", true);
-    if (!newQ.correctAnswer) return showMsg("Select the correct answer", true);
-    setBusy(true);
+    if (!genForm.topic.trim()) {
+      showMsg("Enter a topic first", true);
+      generatorRef.current?.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
+    setGenerating(true);
+    setSuggestedQuestions([]);
+    try {
+      const data = await authFetch("/tests/generate-more", {
+        method: "POST",
+        body: JSON.stringify({ jobId, ...genForm, numberOfQuestions: Number(genForm.numberOfQuestions) })
+      });
+      setSuggestedQuestions(data.questions || []);
+      showMsg(`✨ ${data.questions.length} AI questions ready`);
+      setTimeout(() => suggestionsRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+    } catch (e) {
+      showMsg(e.message, true);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleAddSuggested(q, tempId) {
+    setAddingId(tempId);
     try {
       await authFetch(`/tests/${jobId}/questions`, {
         method: "POST",
-        body: JSON.stringify({ ...newQ, options: newQ.options.map(o => o.trim()) })
+        body: JSON.stringify({
+          question: q.question,
+          options: q.options,
+          correctAnswer: q.correctAnswer,
+          explanation: q.explanation || "",
+          type: q.type || "mcq"
+        })
       });
+      setSuggestedQuestions(prev => prev.filter((_, i) => i !== tempId));
       await loadTest();
-      setNewQ({ question: "", options: ["", "", "", ""], correctAnswer: "", explanation: "", type: "mcq" });
-      setShowAddForm(false);
-      showMsg("Question added");
+      showMsg("✅ Question added");
+    } catch (e) {
+      showMsg(e.message, true);
+    } finally {
+      setAddingId(null);
+    }
+  }
+
+  async function handleAddAllSuggested() {
+    if (!suggestedQuestions.length) return;
+    setBusy(true);
+    try {
+      for (const q of suggestedQuestions) {
+        await authFetch(`/tests/${jobId}/questions`, {
+          method: "POST",
+          body: JSON.stringify({
+            question: q.question,
+            options: q.options,
+            correctAnswer: q.correctAnswer,
+            explanation: q.explanation || "",
+            type: q.type || "mcq"
+          })
+        });
+      }
+      setSuggestedQuestions([]);
+      await loadTest();
+      showMsg("✅ All questions added");
     } catch (e) {
       showMsg(e.message, true);
     } finally {
@@ -3650,26 +3705,136 @@ function TestManager({ jobId, onNavigate }) {
 
   const cardStyle = { background: "var(--card-bg, #fff)", borderRadius: 16, padding: "20px 24px", boxShadow: "0 1px 4px rgba(0,0,0,.08)", marginBottom: 16 };
   const inputStyle = { width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid rgba(17,17,17,.15)", fontSize: "0.9rem", boxSizing: "border-box", background: "transparent", color: "inherit" };
-  const btnPrimary = { background: "#111", color: "#fff", border: 0, borderRadius: 10, padding: "10px 20px", cursor: "pointer", fontSize: "0.9rem", fontWeight: 600 };
+  const btnPrimary  = { background: "#111", color: "#fff", border: 0, borderRadius: 10, padding: "10px 20px", cursor: "pointer", fontSize: "0.9rem", fontWeight: 600 };
   const btnSecondary = { background: "transparent", color: "#111", border: "1px solid rgba(17,17,17,.2)", borderRadius: 10, padding: "8px 16px", cursor: "pointer", fontSize: "0.85rem" };
-  const btnDanger = { background: "transparent", color: "#ef4444", border: "1px solid rgba(239,68,68,.3)", borderRadius: 10, padding: "6px 12px", cursor: "pointer", fontSize: "0.82rem" };
+  const btnDanger   = { background: "transparent", color: "#ef4444", border: "1px solid rgba(239,68,68,.3)", borderRadius: 10, padding: "6px 12px", cursor: "pointer", fontSize: "0.82rem" };
+  const btnSuccess  = { background: "#16a34a", color: "#fff", border: 0, borderRadius: 10, padding: "8px 16px", cursor: "pointer", fontSize: "0.85rem", fontWeight: 600 };
 
   if (loading) return <EmptyState title="Loading test..." text="Fetching test data." />;
 
   return (
     <div>
-      <PageHeader title="🧪 Test Manager" subtitle="Generate, edit, and manage the skill test for this job." />
+      <PageHeader title="🧪 Test Manager" subtitle="Generate AI questions, review them, then add to your test." />
 
-      {error && <div style={{ background: "#fef2f2", color: "#ef4444", borderRadius: 10, padding: "10px 16px", marginBottom: 12 }}>{error}</div>}
+      {error  && <div style={{ background: "#fef2f2", color: "#ef4444", borderRadius: 10, padding: "10px 16px", marginBottom: 12 }}>{error}</div>}
       {notice && <div style={{ background: "#f0fdf4", color: "#16a34a", borderRadius: 10, padding: "10px 16px", marginBottom: 12 }}>{notice}</div>}
 
-      {/* Generate AI Test */}
+      {/* ── SECTION 1: Existing Questions ─────────────────────────── */}
       <div style={cardStyle}>
-        <h3 style={{ margin: "0 0 16px" }}>🤖 Generate AI Test</h3>
-        <form onSubmit={handleGenerate} style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <h3 style={{ margin: 0 }}>
+              📋 Test Questions {test ? `(${test.questions.length})` : "(0)"}
+            </h3>
+            {test && (
+              <p style={{ margin: "4px 0 0", fontSize: "0.82rem", color: "#888" }}>
+                Topic: {test.topic} · Difficulty: {test.difficulty} · Time limit: {test.timeLimit} min
+              </p>
+            )}
+          </div>
+          {/* Scrolls to AI generator section */}
+          <button
+            style={btnPrimary}
+            onClick={() => generatorRef.current?.scrollIntoView({ behavior: "smooth" })}
+          >
+            + Generate More Questions
+          </button>
+        </div>
+
+        {(!test || test.questions.length === 0) && (
+          <div style={{ textAlign: "center", padding: "28px 0", color: "#888" }}>
+            <p style={{ fontSize: "1.5rem", margin: "0 0 8px" }}>🤖</p>
+            <p style={{ margin: 0 }}>No questions yet. Use the AI Generator below to create some.</p>
+          </div>
+        )}
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {(test?.questions || []).map((q, i) => (
+            <div key={q._id} style={{ border: "1px solid rgba(17,17,17,.1)", borderRadius: 12, padding: "14px 16px" }}>
+              {editingQuestion?._id === q._id ? (
+                <form onSubmit={handleUpdateQuestion}>
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>Question</label>
+                    <textarea style={{ ...inputStyle, minHeight: 60, marginTop: 4 }} value={editingQuestion.question}
+                      onChange={e => setEditingQuestion(p => ({ ...p, question: e.target.value }))} />
+                  </div>
+                  <label style={{ fontSize: "0.82rem", fontWeight: 600, display: "block", marginBottom: 6 }}>
+                    Options <span style={{ color: "#888", fontWeight: 400 }}>(● = correct answer)</span>
+                  </label>
+                  {editingQuestion.options.map((opt, oi) => (
+                    <div key={oi} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
+                      <input type="radio" name="editCorrect" checked={editingQuestion.correctAnswer === opt}
+                        onChange={() => setEditingQuestion(p => ({ ...p, correctAnswer: opt }))} />
+                      <input style={{ ...inputStyle, flex: 1 }} value={opt}
+                        onChange={e => {
+                          const opts = [...editingQuestion.options];
+                          const wasCorrect = editingQuestion.correctAnswer === opts[oi];
+                          opts[oi] = e.target.value;
+                          setEditingQuestion(p => ({ ...p, options: opts, correctAnswer: wasCorrect ? e.target.value : p.correctAnswer }));
+                        }} placeholder={`Option ${oi + 1}`} />
+                    </div>
+                  ))}
+                  <div style={{ marginBottom: 10, marginTop: 4 }}>
+                    <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>Explanation (optional)</label>
+                    <input style={{ ...inputStyle, marginTop: 4 }} value={editingQuestion.explanation}
+                      onChange={e => setEditingQuestion(p => ({ ...p, explanation: e.target.value }))} />
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button type="submit" style={btnPrimary} disabled={busy}>Save Changes</button>
+                    <button type="button" style={btnSecondary} onClick={() => setEditingQuestion(null)}>Cancel</button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                    <p style={{ margin: 0, fontWeight: 600, fontSize: "0.9rem", flex: 1 }}>
+                      <span style={{ color: "#aaa", marginRight: 6, fontWeight: 400 }}>Q{i + 1}.</span>
+                      {q.question}
+                    </p>
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      <button style={btnSecondary} onClick={() => setEditingQuestion({ ...q, options: [...q.options] })}>Edit</button>
+                      <button style={btnDanger} disabled={busy} onClick={() => handleDeleteQuestion(q._id)}>Delete</button>
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {q.options.map((opt, oi) => (
+                      <span key={oi} style={{
+                        padding: "4px 12px", borderRadius: 999, fontSize: "0.8rem",
+                        background: opt === q.correctAnswer ? "rgba(34,197,94,0.15)" : "rgba(17,17,17,.06)",
+                        color: opt === q.correctAnswer ? "#16a34a" : "inherit",
+                        fontWeight: opt === q.correctAnswer ? 700 : 400,
+                        border: opt === q.correctAnswer ? "1px solid rgba(34,197,94,.4)" : "1px solid transparent"
+                      }}>
+                        {opt === q.correctAnswer ? "✓ " : ""}{opt}
+                      </span>
+                    ))}
+                  </div>
+                  {q.explanation && (
+                    <p style={{ margin: "6px 0 0", fontSize: "0.78rem", color: "#888", fontStyle: "italic" }}>💡 {q.explanation}</p>
+                  )}
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── SECTION 2: AI Generator ───────────────────────────────── */}
+      <div ref={generatorRef} style={{ ...cardStyle, border: "2px solid rgba(99,102,241,.25)", background: "rgba(99,102,241,.03)" }}>
+        <h3 style={{ margin: "0 0 4px" }}>🤖 AI Question Generator</h3>
+        <p style={{ margin: "0 0 16px", fontSize: "0.85rem", color: "#888" }}>
+          Generate questions and review them before adding to your test.
+        </p>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
           <div style={{ flex: "1 1 200px" }}>
             <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, marginBottom: 4 }}>Topic / Subject</label>
-            <input style={inputStyle} value={genForm.topic} onChange={e => setGenForm(p => ({ ...p, topic: e.target.value }))} placeholder="e.g. React, Marketing, Python" />
+            <input
+              style={inputStyle}
+              value={genForm.topic}
+              onChange={e => setGenForm(p => ({ ...p, topic: e.target.value }))}
+              placeholder="e.g. React Hooks, Digital Marketing, Python"
+            />
           </div>
           <div style={{ flex: "0 0 140px" }}>
             <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, marginBottom: 4 }}>Difficulty</label>
@@ -3679,94 +3844,95 @@ function TestManager({ jobId, onNavigate }) {
               <option value="hard">Hard</option>
             </select>
           </div>
-          <div style={{ flex: "0 0 140px" }}>
-            <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, marginBottom: 4 }}>Questions</label>
+          <div style={{ flex: "0 0 150px" }}>
+            <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, marginBottom: 4 }}>Questions to generate</label>
             <select style={inputStyle} value={genForm.numberOfQuestions} onChange={e => setGenForm(p => ({ ...p, numberOfQuestions: e.target.value }))}>
               {[3,4,5,6,7,8,10,12,15].map(n => <option key={n} value={n}>{n} questions</option>)}
             </select>
           </div>
-          <button type="submit" style={btnPrimary} disabled={busy}>{busy ? "Generating..." : "🤖 Generate"}</button>
-        </form>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
+          <button
+            style={{ ...btnPrimary, background: "#6366f1", display: "flex", alignItems: "center", gap: 8 }}
+            disabled={generating || busy}
+            onClick={handleGenerateMore}
+          >
+            {generating
+              ? <><span style={{ display: "inline-block", width: 14, height: 14, border: "2px solid rgba(255,255,255,.4)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} /> Generating...</>
+              : "✨ Generate More Questions"
+            }
+          </button>
+          <button
+            style={{ ...btnSecondary, fontSize: "0.82rem" }}
+            disabled={generating || busy}
+            onClick={handleGenerateFull}
+          >
+            🔄 Replace Entire Test
+          </button>
+        </div>
+        <p style={{ margin: "10px 0 0", fontSize: "0.78rem", color: "#aaa" }}>
+          "Generate More" adds to suggestions below. "Replace Entire Test" overwrites all existing questions.
+        </p>
       </div>
 
-      {/* Current Questions */}
-      {test && (
-        <div style={cardStyle}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+      {/* ── SECTION 3: AI Suggested Questions ────────────────────── */}
+      {suggestedQuestions.length > 0 && (
+        <div ref={suggestionsRef} style={{ ...cardStyle, border: "2px solid rgba(34,197,94,.3)", background: "rgba(34,197,94,.02)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
             <div>
-              <h3 style={{ margin: 0 }}>Questions ({test.questions.length})</h3>
+              <h3 style={{ margin: 0 }}>✨ AI Suggested Questions ({suggestedQuestions.length})</h3>
               <p style={{ margin: "4px 0 0", fontSize: "0.82rem", color: "#888" }}>
-                Topic: {test.topic} · Difficulty: {test.difficulty} · Time: {test.timeLimit} min
+                Review each question and click "Add to Test" to include it.
               </p>
             </div>
-            <button style={btnPrimary} onClick={() => setShowAddForm(true)}>+ Add Question</button>
+            <button style={btnSuccess} disabled={busy} onClick={handleAddAllSuggested}>
+              {busy ? "Adding..." : `➕ Add All ${suggestedQuestions.length} to Test`}
+            </button>
           </div>
 
-          {test.questions.length === 0 && (
-            <p style={{ color: "#888", textAlign: "center", padding: "20px 0" }}>No questions yet. Generate or add manually.</p>
-          )}
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {test.questions.map((q, i) => (
-              <div key={q._id} style={{ border: "1px solid rgba(17,17,17,.1)", borderRadius: 12, padding: "14px 16px" }}>
-                {editingQuestion?._id === q._id ? (
-                  <form onSubmit={handleUpdateQuestion}>
-                    <div style={{ marginBottom: 10 }}>
-                      <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>Question</label>
-                      <textarea style={{ ...inputStyle, minHeight: 60, marginTop: 4 }} value={editingQuestion.question}
-                        onChange={e => setEditingQuestion(p => ({ ...p, question: e.target.value }))} />
-                    </div>
-                    {editingQuestion.options.map((opt, oi) => (
-                      <div key={oi} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
-                        <input type="radio" name="editCorrect" checked={editingQuestion.correctAnswer === opt}
-                          onChange={() => setEditingQuestion(p => ({ ...p, correctAnswer: opt }))} />
-                        <input style={{ ...inputStyle, flex: 1 }} value={opt}
-                          onChange={e => {
-                            const opts = [...editingQuestion.options];
-                            opts[oi] = e.target.value;
-                            setEditingQuestion(p => ({ ...p, options: opts, correctAnswer: p.correctAnswer === opt ? e.target.value : p.correctAnswer }));
-                          }} placeholder={`Option ${oi + 1}`} />
-                      </div>
-                    ))}
-                    <div style={{ marginBottom: 10 }}>
-                      <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>Explanation (optional)</label>
-                      <input style={{ ...inputStyle, marginTop: 4 }} value={editingQuestion.explanation}
-                        onChange={e => setEditingQuestion(p => ({ ...p, explanation: e.target.value }))} />
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button type="submit" style={btnPrimary} disabled={busy}>Save</button>
-                      <button type="button" style={btnSecondary} onClick={() => setEditingQuestion(null)}>Cancel</button>
-                    </div>
-                  </form>
-                ) : (
-                  <>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                      <p style={{ margin: 0, fontWeight: 600, fontSize: "0.9rem", flex: 1 }}>
-                        <span style={{ color: "#888", marginRight: 6 }}>Q{i + 1}.</span>{q.question}
-                      </p>
-                      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                        <button style={btnSecondary} onClick={() => setEditingQuestion({ ...q, options: [...q.options] })}>Edit</button>
-                        <button style={btnDanger} disabled={busy} onClick={() => handleDeleteQuestion(q._id)}>Delete</button>
-                      </div>
-                    </div>
-                    <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {q.options.map((opt, oi) => (
-                        <span key={oi} style={{
-                          padding: "4px 12px", borderRadius: 999, fontSize: "0.8rem",
-                          background: opt === q.correctAnswer ? "rgba(34,197,94,0.15)" : "rgba(17,17,17,.06)",
-                          color: opt === q.correctAnswer ? "#16a34a" : "inherit",
-                          fontWeight: opt === q.correctAnswer ? 700 : 400,
-                          border: opt === q.correctAnswer ? "1px solid rgba(34,197,94,.4)" : "1px solid transparent"
-                        }}>
-                          {opt === q.correctAnswer ? "✓ " : ""}{opt}
-                        </span>
-                      ))}
-                    </div>
-                    {q.explanation && (
-                      <p style={{ margin: "6px 0 0", fontSize: "0.78rem", color: "#888", fontStyle: "italic" }}>💡 {q.explanation}</p>
-                    )}
-                    <span style={{ fontSize: "0.72rem", color: "#aaa", marginTop: 4, display: "block" }}>Type: {q.type}</span>
-                  </>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {suggestedQuestions.map((q, i) => (
+              <div key={i} style={{ border: "1px solid rgba(34,197,94,.25)", borderRadius: 12, padding: "16px 18px", background: "rgba(255,255,255,.6)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                  <p style={{ margin: 0, fontWeight: 600, fontSize: "0.9rem", flex: 1 }}>
+                    <span style={{ color: "#aaa", marginRight: 6, fontWeight: 400 }}>#{i + 1}</span>
+                    {q.question}
+                  </p>
+                  <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                    <button
+                      style={{ ...btnSuccess, padding: "6px 14px", fontSize: "0.82rem" }}
+                      disabled={addingId === i || busy}
+                      onClick={() => handleAddSuggested(q, i)}
+                    >
+                      {addingId === i ? "Adding..." : "➕ Add to Test"}
+                    </button>
+                    <button
+                      style={{ ...btnDanger, padding: "6px 10px" }}
+                      onClick={() => setSuggestedQuestions(prev => prev.filter((_, idx) => idx !== i))}
+                      title="Dismiss"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+                <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {(q.options || []).map((opt, oi) => (
+                    <span key={oi} style={{
+                      padding: "5px 14px", borderRadius: 999, fontSize: "0.82rem",
+                      background: opt === q.correctAnswer ? "rgba(34,197,94,0.15)" : "rgba(17,17,17,.06)",
+                      color: opt === q.correctAnswer ? "#16a34a" : "inherit",
+                      fontWeight: opt === q.correctAnswer ? 700 : 400,
+                      border: opt === q.correctAnswer ? "1px solid rgba(34,197,94,.4)" : "1px solid transparent"
+                    }}>
+                      {opt === q.correctAnswer ? "✓ " : ""}{opt}
+                    </span>
+                  ))}
+                </div>
+                {q.explanation && (
+                  <p style={{ margin: "8px 0 0", fontSize: "0.78rem", color: "#888", fontStyle: "italic" }}>
+                    💡 {q.explanation}
+                  </p>
                 )}
               </div>
             ))}
@@ -3774,63 +3940,7 @@ function TestManager({ jobId, onNavigate }) {
         </div>
       )}
 
-      {/* Add Question Form */}
-      {showAddForm && (
-        <div style={{ ...cardStyle, border: "2px solid rgba(17,17,17,.15)" }}>
-          <h3 style={{ margin: "0 0 16px" }}>Add New Question</h3>
-          <form onSubmit={handleAddQuestion}>
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>Question Text</label>
-              <textarea style={{ ...inputStyle, minHeight: 60, marginTop: 4 }} value={newQ.question}
-                onChange={e => setNewQ(p => ({ ...p, question: e.target.value }))} placeholder="Enter your question..." />
-            </div>
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: "0.82rem", fontWeight: 600, display: "block", marginBottom: 6 }}>
-                Options <span style={{ color: "#888", fontWeight: 400 }}>(select the correct one)</span>
-              </label>
-              {newQ.options.map((opt, i) => (
-                <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
-                  <input type="radio" name="newCorrect" checked={newQ.correctAnswer === opt && opt !== ""}
-                    onChange={() => opt && setNewQ(p => ({ ...p, correctAnswer: opt }))} />
-                  <input style={{ ...inputStyle, flex: 1 }} value={opt}
-                    onChange={e => {
-                      const opts = [...newQ.options];
-                      const wasCorrect = newQ.correctAnswer === opts[i];
-                      opts[i] = e.target.value;
-                      setNewQ(p => ({ ...p, options: opts, correctAnswer: wasCorrect ? e.target.value : p.correctAnswer }));
-                    }}
-                    placeholder={`Option ${i + 1}`} />
-                </div>
-              ))}
-            </div>
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>Explanation (optional)</label>
-              <input style={{ ...inputStyle, marginTop: 4 }} value={newQ.explanation}
-                onChange={e => setNewQ(p => ({ ...p, explanation: e.target.value }))} placeholder="Why is this the correct answer?" />
-            </div>
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ fontSize: "0.82rem", fontWeight: 600 }}>Question Type</label>
-              <select style={{ ...inputStyle, marginTop: 4 }} value={newQ.type} onChange={e => setNewQ(p => ({ ...p, type: e.target.value }))}>
-                <option value="mcq">MCQ</option>
-                <option value="text">Text</option>
-                <option value="code">Code</option>
-              </select>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button type="submit" style={btnPrimary} disabled={busy}>Add Question</button>
-              <button type="button" style={btnSecondary} onClick={() => setShowAddForm(false)}>Cancel</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {!test && !loading && (
-        <div style={{ ...cardStyle, textAlign: "center", padding: "32px 24px" }}>
-          <p style={{ fontSize: "1.5rem", margin: "0 0 8px" }}>🧪</p>
-          <h3>No test yet</h3>
-          <p style={{ color: "#888" }}>Use the generator above to create an AI-powered test, or add questions manually.</p>
-        </div>
-      )}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

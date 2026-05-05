@@ -3,6 +3,7 @@ const router = express.Router();
 const { verifyToken } = require("../middleware/authMiddleware");
 const {
   generateAiTest,
+  generateMoreQuestions,
   getTest,
   addQuestion,
   updateQuestion,
@@ -14,8 +15,11 @@ const {
   getRankings
 } = require("../controllers/testController");
 
-// ── Business: generate AI test ──────────────────────────────────────────────
-router.post("/generate", verifyToken, generateAiTest);
+// ── Business: generate AI test (replaces existing) ─────────────────────────
+router.post("/generate",      verifyToken, generateAiTest);
+
+// ── Business: generate suggestions only (does NOT save) ────────────────────
+router.post("/generate-more", verifyToken, generateMoreQuestions);
 
 // ── Business: full test management ─────────────────────────────────────────
 router.get("/:jobId",                              verifyToken, getTest);

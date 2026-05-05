@@ -15,6 +15,56 @@ async function getOwnedJob(jobId, businessId) {
   return Job.findOne({ _id: jobId, businessId });
 }
 
+// ─── POST /api/tests/generate-more ───────────────────────────────────────────
+// Returns AI-generated questions WITHOUT saving to DB (for preview/suggestion flow)
+exports.generateMoreQuestions = async (req, res) => {
+  try {
+    if (req.user.role !== "business") {
+      return res.status(403).json({ message: "Only businesses can generate questions" });
+    }
+
+    const { jobId, topic, difficulty = "medium", numberOfQuestions = 5 } = req.body;
+    if (!jobId) return res.status(400).json({ message: "jobId is required" });
+
+    const job = await getOwnedJob(jobId, req.user.id);
+    if (!job) return res.status(404).json({ message: "Job not found or access denied" });
+
+    const n = Math.min(Math.max(Number(numberOfQuestions) || 5, 3), 20);
+    const diff = ["easy", "medium", "hard"].includes(difficulty) ? difficulty : "medium";
+    const testTopic = String(topic || job.title || "General").trim();
+
+    console.log(`[testController] generate-more: ${n} questions for "${job.title}" topic="${testTopic}" (${diff})`);
+
+    let questions;
+    try {
+      questions = await aiGenerateTest({
+        jobTitle: job.title,
+        skills: job.skills || [],
+        difficulty: diff,
+        numberOfQuestions: n
+      });
+      console.log(`[testController] generate-more: AI returned ${questions.length} questions`);
+    } catch (aiError) {
+      console.error("[testController] generate-more AI failed, using fallback:", aiError.message);
+      questions = generateFallbackQuestions(job.title, job.skills || [], n);
+    }
+
+    if (!questions || questions.length === 0) {
+      return res.status(500).json({ message: "Failed to generate questions" });
+    }
+
+    // Return questions WITHOUT saving — frontend decides which to add
+    res.status(200).json({
+      message: `Generated ${questions.length} questions`,
+      questions,
+      count: questions.length
+    });
+  } catch (error) {
+    console.error("[testController] generateMoreQuestions error:", error.message);
+    res.status(500).json({ message: "Server error: " + error.message });
+  }
+};
+
 // ─── POST /api/tests/generate ─────────────────────────────────────────────────
 // Business generates AI test for a job
 exports.generateAiTest = async (req, res) => {
