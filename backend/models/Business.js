@@ -39,6 +39,11 @@ const businessSchema = new mongoose.Schema({
   verificationToken: { type: String },
   tokenExpiry:       { type: Date },
 
+  // ── Account settings: OTP + pending email change ───────────────
+  otp:               { type: String },
+  otpExpiry:         { type: Date },
+  pendingEmail:      { type: String },
+
   // ── Optional Google OAuth ──────────────────────────────────────
   googleId:          { type: String },
 

@@ -21,6 +21,11 @@ const StudentSchema = new mongoose.Schema({
   verificationToken: { type: String },
   tokenExpiry:       { type: Date },
 
+  // ── Account settings: OTP + pending email change ───────────────
+  otp:               { type: String },
+  otpExpiry:         { type: Date },
+  pendingEmail:      { type: String },
+
   // ── Optional phone field (already existed, kept for OTP use) ───
   // phone is already defined above
 

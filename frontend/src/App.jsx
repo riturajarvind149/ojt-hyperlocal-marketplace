@@ -10,7 +10,8 @@ const sectionRoutes = {
     "Browse Jobs": "/student/jobs",
     "My Applications": "/student/applications",
     Messages: "/student/messages",
-    Profile: "/student/profile"
+    Profile: "/student/profile",
+    Settings: "/student/settings"
   },
   business: {
     Dashboard: "/business/dashboard",
@@ -18,7 +19,8 @@ const sectionRoutes = {
     "My Jobs": "/business/jobs",
     Applications: "/business/applications",
     Messages: "/business/messages",
-    Profile: "/business/profile"
+    Profile: "/business/profile",
+    Settings: "/business/settings"
   }
 };
 
@@ -2251,6 +2253,7 @@ function StudentArea({ route, user, jobs, applications, recommendedJobs, inbox, 
   if (route.section === "applications") return <StudentApplications applications={applications} onOpenConversation={onOpenConversation} navigate={navigate} />;
   if (route.section === "messages") return <MessagesScreen role="student" inbox={inbox} activeConversation={activeConversation} onOpenConversation={onOpenConversation} onSendMessage={onSendMessage} />;
   if (route.section === "profile") return <ProfileEditor user={user} onSave={onSaveProfile} />;
+  if (route.section === "settings") return <AccountSettings user={user} onEmailChange={(newEmail) => { /* update user email in parent */ }} />;
 
   const pref = user?.jobTypePreference || "both";
   const prefLabel = pref === "online" ? "🌐 Online" : pref === "offline" ? "📍 Offline" : "🔀 Online & Offline";
@@ -2322,6 +2325,7 @@ function BusinessArea({ route, user, jobs, applications, inbox, activeConversati
   }
   if (route.section === "messages") return <MessagesScreen role="business" inbox={inbox} activeConversation={activeConversation} onOpenConversation={onOpenConversation} onSendMessage={onSendMessage} />;
   if (route.section === "profile") return <ProfileEditor user={user} onSave={onSaveProfile} />;
+  if (route.section === "settings") return <AccountSettings user={user} />;
   if (route.section === "rankings") return <RankingsScreen rankings={rankings} onNavigate={onNavigate} onUpdateStatus={onUpdateStatus} busy={busy} />;
   if (route.section === "ai-rankings") return <AiRankingsScreen jobId={route.jobId} onNavigate={onNavigate} />;
   if (route.section === "team-selection") return <TeamSelectionScreen jobId={route.jobId} suggestions={teamSuggestions} onSelectTeam={onSelectTeam} />;
@@ -4134,6 +4138,357 @@ function AiRankingsScreen({ jobId, onNavigate }) {
         Formula: <strong>Final Score = (Test × 0.6) + (Skill Match × 0.3) − (Time × 0.1)</strong>
       </div>
     </>
+  );
+}
+
+// ─── ACCOUNT SETTINGS ─────────────────────────────────────────────
+function AccountSettings({ user }) {
+  const [tab, setTab] = useState("password"); // "password" | "email"
+
+  // ── Change Password state ──────────────────────────────────────
+  const [pwForm, setPwForm] = useState({ oldPassword: "", newPassword: "", confirmPassword: "" });
+  const [pwMode, setPwMode] = useState("old"); // "old" | "otp"
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpForm, setOtpForm] = useState({ otp: "", newPassword: "", confirmPassword: "" });
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwMsg, setPwMsg] = useState({ text: "", ok: true });
+
+  // ── Change Email state ─────────────────────────────────────────
+  const [emailStep, setEmailStep] = useState(1); // 1 = enter new email, 2 = enter OTP
+  const [newEmail, setNewEmail] = useState("");
+  const [emailOtp, setEmailOtp] = useState("");
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [emailMsg, setEmailMsg] = useState({ text: "", ok: true });
+
+  function showPwMsg(text, ok = true) {
+    setPwMsg({ text, ok });
+    if (ok) setTimeout(() => setPwMsg({ text: "", ok: true }), 5000);
+  }
+  function showEmailMsg(text, ok = true) {
+    setEmailMsg({ text, ok });
+    if (ok) setTimeout(() => setEmailMsg({ text: "", ok: true }), 5000);
+  }
+
+  async function apiFetch(path, body) {
+    const token = localStorage.getItem("token");
+    const res = await fetch(`${API_URL}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || "Request failed");
+    return data;
+  }
+
+  // ── Password: change with old password ────────────────────────
+  async function handleChangePassword(e) {
+    e.preventDefault();
+    if (pwForm.newPassword !== pwForm.confirmPassword) {
+      return showPwMsg("New passwords do not match", false);
+    }
+    setPwBusy(true);
+    try {
+      const data = await apiFetch("/auth/change-password", pwForm);
+      showPwMsg(data.message, true);
+      setPwForm({ oldPassword: "", newPassword: "", confirmPassword: "" });
+    } catch (err) {
+      showPwMsg(err.message, false);
+    } finally {
+      setPwBusy(false);
+    }
+  }
+
+  // ── Password: send OTP to current email ───────────────────────
+  async function handleSendPasswordOtp() {
+    setPwBusy(true);
+    try {
+      const data = await apiFetch("/auth/send-password-otp", {});
+      setOtpSent(true);
+      showPwMsg(data.message, true);
+    } catch (err) {
+      showPwMsg(err.message, false);
+    } finally {
+      setPwBusy(false);
+    }
+  }
+
+  // ── Password: verify OTP and set new password ─────────────────
+  async function handleVerifyPasswordOtp(e) {
+    e.preventDefault();
+    if (otpForm.newPassword !== otpForm.confirmPassword) {
+      return showPwMsg("Passwords do not match", false);
+    }
+    setPwBusy(true);
+    try {
+      const data = await apiFetch("/auth/verify-password-otp", otpForm);
+      showPwMsg(data.message, true);
+      setOtpForm({ otp: "", newPassword: "", confirmPassword: "" });
+      setOtpSent(false);
+      setPwMode("old");
+    } catch (err) {
+      showPwMsg(err.message, false);
+    } finally {
+      setPwBusy(false);
+    }
+  }
+
+  // ── Email: send OTP to NEW email ──────────────────────────────
+  async function handleSendEmailOtp(e) {
+    e.preventDefault();
+    if (!newEmail.trim()) return showEmailMsg("Enter a new email address", false);
+    setEmailBusy(true);
+    try {
+      const data = await apiFetch("/auth/send-email-otp", { newEmail });
+      setEmailStep(2);
+      showEmailMsg(data.message, true);
+    } catch (err) {
+      showEmailMsg(err.message, false);
+    } finally {
+      setEmailBusy(false);
+    }
+  }
+
+  // ── Email: verify OTP and commit change ───────────────────────
+  async function handleVerifyEmailOtp(e) {
+    e.preventDefault();
+    if (!emailOtp.trim()) return showEmailMsg("Enter the OTP", false);
+    setEmailBusy(true);
+    try {
+      const data = await apiFetch("/auth/verify-email-otp", { otp: emailOtp });
+      showEmailMsg(`✅ Email changed to ${data.newEmail}. Please log in again.`, true);
+      setEmailStep(1);
+      setNewEmail("");
+      setEmailOtp("");
+      // Force re-login since JWT still has old email context
+      setTimeout(() => {
+        localStorage.removeItem("token");
+        window.location.href = "/login";
+      }, 3000);
+    } catch (err) {
+      showEmailMsg(err.message, false);
+    } finally {
+      setEmailBusy(false);
+    }
+  }
+
+  // ── Shared styles ──────────────────────────────────────────────
+  const card = { background: "var(--card-bg,#fff)", borderRadius: 16, padding: "24px 28px", boxShadow: "0 1px 4px rgba(0,0,0,.08)", marginBottom: 16 };
+  const field = { display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 };
+  const label = { fontSize: "0.82rem", fontWeight: 600, color: "inherit" };
+  const inp = { padding: "10px 14px", borderRadius: 10, border: "1px solid rgba(17,17,17,.15)", fontSize: "0.9rem", background: "transparent", color: "inherit", width: "100%", boxSizing: "border-box" };
+  const btnPrimary = { background: "#111", color: "#fff", border: 0, borderRadius: 10, padding: "11px 22px", cursor: "pointer", fontSize: "0.9rem", fontWeight: 600, width: "100%" };
+  const btnGhost = { background: "transparent", color: "#6366f1", border: "1px solid rgba(99,102,241,.35)", borderRadius: 10, padding: "9px 18px", cursor: "pointer", fontSize: "0.85rem", fontWeight: 600 };
+  const msgStyle = (ok) => ({
+    padding: "10px 14px", borderRadius: 10, fontSize: "0.85rem", marginBottom: 12,
+    background: ok ? "rgba(34,197,94,.1)" : "rgba(239,68,68,.1)",
+    color: ok ? "#16a34a" : "#ef4444",
+    border: `1px solid ${ok ? "rgba(34,197,94,.3)" : "rgba(239,68,68,.3)"}`
+  });
+
+  return (
+    <div style={{ maxWidth: 560 }}>
+      <PageHeader title="⚙️ Account Settings" subtitle="Manage your password and email address securely." />
+
+      {/* Tab switcher */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+        {[["password", "🔒 Change Password"], ["email", "📧 Change Email"]].map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            style={{
+              padding: "9px 20px", borderRadius: 10, cursor: "pointer", fontWeight: 600, fontSize: "0.88rem",
+              background: tab === key ? "#111" : "transparent",
+              color: tab === key ? "#fff" : "inherit",
+              border: tab === key ? "none" : "1px solid rgba(17,17,17,.2)"
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════
+          TAB 1 — CHANGE PASSWORD
+      ══════════════════════════════════════════════════════════ */}
+      {tab === "password" && (
+        <div style={card}>
+          <h3 style={{ margin: "0 0 4px" }}>Change Password</h3>
+          <p style={{ margin: "0 0 18px", fontSize: "0.85rem", color: "#888" }}>
+            Current email: <strong>{user?.email}</strong>
+          </p>
+
+          {pwMsg.text && <div style={msgStyle(pwMsg.ok)}>{pwMsg.text}</div>}
+
+          {/* Sub-tab: old password vs OTP */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+            <button
+              onClick={() => { setPwMode("old"); setOtpSent(false); setPwMsg({ text: "", ok: true }); }}
+              style={{ ...btnGhost, background: pwMode === "old" ? "rgba(99,102,241,.1)" : "transparent", fontSize: "0.8rem", padding: "7px 14px" }}
+            >
+              Use Old Password
+            </button>
+            <button
+              onClick={() => { setPwMode("otp"); setPwMsg({ text: "", ok: true }); }}
+              style={{ ...btnGhost, background: pwMode === "otp" ? "rgba(99,102,241,.1)" : "transparent", fontSize: "0.8rem", padding: "7px 14px" }}
+            >
+              Forgot Password?
+            </button>
+          </div>
+
+          {/* ── Mode A: old password ── */}
+          {pwMode === "old" && (
+            <form onSubmit={handleChangePassword}>
+              <div style={field}>
+                <label style={label}>Current Password</label>
+                <input style={inp} type="password" placeholder="Enter current password" value={pwForm.oldPassword}
+                  onChange={e => setPwForm(p => ({ ...p, oldPassword: e.target.value }))} required />
+              </div>
+              <div style={field}>
+                <label style={label}>New Password</label>
+                <input style={inp} type="password" placeholder="Min 8 chars, letters + numbers" value={pwForm.newPassword}
+                  onChange={e => setPwForm(p => ({ ...p, newPassword: e.target.value }))} required />
+              </div>
+              <div style={field}>
+                <label style={label}>Confirm New Password</label>
+                <input style={inp} type="password" placeholder="Repeat new password" value={pwForm.confirmPassword}
+                  onChange={e => setPwForm(p => ({ ...p, confirmPassword: e.target.value }))} required />
+              </div>
+              <button style={btnPrimary} type="submit" disabled={pwBusy}>
+                {pwBusy ? "Updating..." : "Update Password"}
+              </button>
+            </form>
+          )}
+
+          {/* ── Mode B: OTP flow ── */}
+          {pwMode === "otp" && (
+            <div>
+              {!otpSent ? (
+                <div>
+                  <p style={{ fontSize: "0.88rem", color: "#665f55", marginBottom: 16 }}>
+                    We'll send a 6-digit OTP to <strong>{user?.email}</strong>. Use it to set a new password.
+                  </p>
+                  <button style={btnPrimary} onClick={handleSendPasswordOtp} disabled={pwBusy}>
+                    {pwBusy ? "Sending..." : "Send OTP to My Email"}
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleVerifyPasswordOtp}>
+                  <p style={{ fontSize: "0.85rem", color: "#16a34a", marginBottom: 14 }}>
+                    ✅ OTP sent to {user?.email}. Enter it below.
+                  </p>
+                  <div style={field}>
+                    <label style={label}>OTP Code</label>
+                    <input style={inp} type="text" placeholder="6-digit OTP" maxLength={6} value={otpForm.otp}
+                      onChange={e => setOtpForm(p => ({ ...p, otp: e.target.value }))} required />
+                  </div>
+                  <div style={field}>
+                    <label style={label}>New Password</label>
+                    <input style={inp} type="password" placeholder="Min 8 chars, letters + numbers" value={otpForm.newPassword}
+                      onChange={e => setOtpForm(p => ({ ...p, newPassword: e.target.value }))} required />
+                  </div>
+                  <div style={field}>
+                    <label style={label}>Confirm New Password</label>
+                    <input style={inp} type="password" placeholder="Repeat new password" value={otpForm.confirmPassword}
+                      onChange={e => setOtpForm(p => ({ ...p, confirmPassword: e.target.value }))} required />
+                  </div>
+                  <button style={btnPrimary} type="submit" disabled={pwBusy}>
+                    {pwBusy ? "Verifying..." : "Verify OTP & Update Password"}
+                  </button>
+                  <button type="button" style={{ ...btnGhost, marginTop: 10, width: "100%", textAlign: "center" }}
+                    onClick={handleSendPasswordOtp} disabled={pwBusy}>
+                    Resend OTP
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════
+          TAB 2 — CHANGE EMAIL
+      ══════════════════════════════════════════════════════════ */}
+      {tab === "email" && (
+        <div style={card}>
+          <h3 style={{ margin: "0 0 4px" }}>Change Email Address</h3>
+          <p style={{ margin: "0 0 18px", fontSize: "0.85rem", color: "#888" }}>
+            Current email: <strong>{user?.email}</strong>
+          </p>
+
+          {emailMsg.text && <div style={msgStyle(emailMsg.ok)}>{emailMsg.text}</div>}
+
+          {/* Step indicator */}
+          <div style={{ display: "flex", gap: 0, marginBottom: 20 }}>
+            {["Enter New Email", "Verify OTP"].map((s, i) => (
+              <div key={i} style={{ flex: 1, textAlign: "center" }}>
+                <div style={{
+                  width: 28, height: 28, borderRadius: "50%", margin: "0 auto 4px",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: "0.8rem", fontWeight: 700,
+                  background: emailStep > i + 1 ? "#16a34a" : emailStep === i + 1 ? "#111" : "rgba(17,17,17,.1)",
+                  color: emailStep >= i + 1 ? "#fff" : "#888"
+                }}>
+                  {emailStep > i + 1 ? "✓" : i + 1}
+                </div>
+                <span style={{ fontSize: "0.75rem", color: emailStep === i + 1 ? "inherit" : "#aaa" }}>{s}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Step 1: Enter new email */}
+          {emailStep === 1 && (
+            <form onSubmit={handleSendEmailOtp}>
+              <div style={field}>
+                <label style={label}>New Email Address</label>
+                <input style={inp} type="email" placeholder="Enter your new email" value={newEmail}
+                  onChange={e => setNewEmail(e.target.value)} required />
+              </div>
+              <p style={{ fontSize: "0.8rem", color: "#888", marginBottom: 14 }}>
+                📬 An OTP will be sent to the <strong>new email</strong> to verify you own it.
+                Your current email stays unchanged until verification is complete.
+              </p>
+              <button style={btnPrimary} type="submit" disabled={emailBusy}>
+                {emailBusy ? "Sending OTP..." : "Send OTP to New Email"}
+              </button>
+            </form>
+          )}
+
+          {/* Step 2: Enter OTP */}
+          {emailStep === 2 && (
+            <form onSubmit={handleVerifyEmailOtp}>
+              <p style={{ fontSize: "0.85rem", color: "#16a34a", marginBottom: 14 }}>
+                ✅ OTP sent to <strong>{newEmail}</strong>. Check that inbox.
+              </p>
+              <div style={field}>
+                <label style={label}>OTP Code</label>
+                <input style={inp} type="text" placeholder="6-digit OTP" maxLength={6} value={emailOtp}
+                  onChange={e => setEmailOtp(e.target.value)} required />
+              </div>
+              <button style={btnPrimary} type="submit" disabled={emailBusy}>
+                {emailBusy ? "Verifying..." : "Verify OTP & Update Email"}
+              </button>
+              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                <button type="button" style={{ ...btnGhost, flex: 1 }}
+                  onClick={handleSendEmailOtp} disabled={emailBusy}>
+                  Resend OTP
+                </button>
+                <button type="button" style={{ ...btnGhost, flex: 1, color: "#888", borderColor: "rgba(17,17,17,.15)" }}
+                  onClick={() => { setEmailStep(1); setEmailOtp(""); setEmailMsg({ text: "", ok: true }); }}>
+                  Change Email
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+
+      {/* Security note */}
+      <div style={{ background: "rgba(99,102,241,.06)", border: "1px solid rgba(99,102,241,.2)", borderRadius: 12, padding: "12px 16px", fontSize: "0.8rem", color: "#665f55" }}>
+        🔐 <strong>Security:</strong> OTPs expire in 5 minutes and are single-use.
+        Email changes only take effect after OTP verification on the new address.
+      </div>
+    </div>
   );
 }
 
